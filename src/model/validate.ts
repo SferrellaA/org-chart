@@ -2,7 +2,6 @@ import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.
 
 import schema from '../../public/org-delta-chart.schema.json';
 import type {
-  HierarchyEdge,
   OrgDocument,
   Patch,
   Proposal,
@@ -124,7 +123,8 @@ function patchErrors(
   owner: string,
   patch: Patch,
   knownNodes: ReadonlySet<string>,
-  knownRelationships: ReadonlySet<string>,
+  knownRelationships: Set<string>,
+  introducedRelationships: Set<string>,
 ): string[] {
   const errors: string[] = [];
   const checkNode = (path: string, node: string): void => {
@@ -132,22 +132,35 @@ function patchErrors(
   };
 
   if ('node' in patch) checkNode('node', patch.node);
-  if ('child' in patch) checkNode('child', patch.child);
   if ('parent' in patch) checkNode('parent', patch.parent);
   patch.relatedNodes?.forEach((node, index) => checkNode(`relatedNodes/${index}`, node));
 
-  if (patch.op === 'add-relationship') {
+  if (patch.type === 'add-relationship') {
+    if (
+      knownRelationships.has(patch.relationship.id) ||
+      introducedRelationships.has(patch.relationship.id)
+    ) {
+      errors.push(
+        `${owner}/relationship/id: duplicate introduced relationship ID "${patch.relationship.id}"`,
+      );
+    }
+    introducedRelationships.add(patch.relationship.id);
+    knownRelationships.add(patch.relationship.id);
     errors.push(...relationshipNodeErrors(`${owner}/relationship`, patch.relationship, knownNodes));
-  } else if (patch.op === 'set-relationship') {
+  } else if (patch.type === 'set-relationship') {
     if (!knownRelationships.has(patch.relationship)) {
       errors.push(`${owner}/relationship: unknown relationship "${patch.relationship}"`);
     }
-    if (patch.value.id !== patch.relationship) {
-      errors.push(`${owner}/value/id: must equal relationship "${patch.relationship}"`);
+    if (patch.value.source && !knownNodes.has(patch.value.source)) {
+      errors.push(`${owner}/value/source: unknown node "${patch.value.source}"`);
     }
-    errors.push(...relationshipNodeErrors(`${owner}/value`, patch.value, knownNodes));
-  } else if (patch.op === 'remove-relationship' && !knownRelationships.has(patch.relationship)) {
+    if (patch.value.target && !knownNodes.has(patch.value.target)) {
+      errors.push(`${owner}/value/target: unknown node "${patch.value.target}"`);
+    }
+  } else if (patch.type === 'remove-relationship' && !knownRelationships.has(patch.relationship)) {
     errors.push(`${owner}/relationship: unknown relationship "${patch.relationship}"`);
+  } else if (patch.type === 'remove-relationship') {
+    knownRelationships.delete(patch.relationship);
   }
   return errors;
 }
@@ -160,15 +173,25 @@ function proposalErrors(
 ): string[] {
   const owner = `proposal/${proposal.id}`;
   const errors: string[] = [];
+  const proposalRelationships = new Set(knownRelationships);
+  const introducedRelationships = new Set<string>();
   if (!knownBases.has(proposal.base)) {
     errors.push(`${owner}/base: unknown base "${proposal.base}"`);
   }
-  if (proposal.complete) {
-    errors.push(...hierarchyErrors(`${owner}/complete`, proposal.complete, knownNodes));
+  if (proposal.snapshot) {
+    errors.push(...hierarchyErrors(`${owner}/snapshot`, proposal.snapshot, knownNodes));
   }
 
   proposal.patches?.forEach((patch, index) => {
-    errors.push(...patchErrors(`${owner}/patches/${index}`, patch, knownNodes, knownRelationships));
+    errors.push(
+      ...patchErrors(
+        `${owner}/patches/${index}`,
+        patch,
+        knownNodes,
+        proposalRelationships,
+        introducedRelationships,
+      ),
+    );
   });
 
   const groups = proposal.patchGroups ?? [];
@@ -176,6 +199,7 @@ function proposalErrors(
   const groupById = new Map(groups.map((group) => [group.id, group]));
   for (const [groupIndex, group] of groups.entries()) {
     const groupPath = `${owner}/patchGroups/${groupIndex}`;
+    const groupRelationships = new Set(proposalRelationships);
     for (const [kind, references] of [
       ['requires', group.requires ?? []],
       ['conflictsWith', group.conflictsWith ?? []],
@@ -187,13 +211,24 @@ function proposalErrors(
       });
     }
     for (const conflict of group.conflictsWith ?? []) {
+      if ((group.requires ?? []).includes(conflict)) {
+        errors.push(
+          `${groupPath}: group "${group.id}" requires and conflicts with "${conflict}"`,
+        );
+      }
       if (groupIds.has(conflict) && !(groupById.get(conflict)?.conflictsWith ?? []).includes(group.id)) {
         errors.push(`${groupPath}/conflictsWith: conflict with "${conflict}" must be symmetric`);
       }
     }
     group.patches.forEach((patch, patchIndex) => {
       errors.push(
-        ...patchErrors(`${groupPath}/patches/${patchIndex}`, patch, knownNodes, knownRelationships),
+        ...patchErrors(
+          `${groupPath}/patches/${patchIndex}`,
+          patch,
+          knownNodes,
+          groupRelationships,
+          introducedRelationships,
+        ),
       );
     });
   }
@@ -208,7 +243,7 @@ function proposalErrors(
   return errors;
 }
 
-export function validateOrgDocument(input: unknown): ValidationResult {
+export function validateDocument(input: unknown): ValidationResult {
   if (!schemaValidator) {
     return { ok: false, errors: [`schema: failed to compile: ${schemaCompilationError}`] };
   }
@@ -314,3 +349,5 @@ export function validateOrgDocument(input: unknown): ValidationResult {
 
   return { ok: true, value: document, viewErrors: mutableViewErrors };
 }
+
+export const validateOrgDocument = validateDocument;

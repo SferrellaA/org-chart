@@ -1,6 +1,6 @@
 export class OrgDeltaChartElement extends HTMLElement {}
 
-export { validateOrgDocument } from './model/validate';
+export { validateDocument, validateOrgDocument } from './model/validate';
 export type * from './model/types';
 
 if (!customElements.get('org-delta-chart')) {

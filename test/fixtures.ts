@@ -1,6 +1,13 @@
 import type { OrgDocument } from '../src/model/types';
 
+export type DeepMutable<T> = T extends readonly (infer Item)[]
+  ? DeepMutable<Item>[]
+  : T extends object
+    ? { -readonly [Key in keyof T]: DeepMutable<T[Key]> }
+    : T;
+
 export const validDocument: OrgDocument = {
+  $schema: 'https://org-delta-chart.dev/schema/org-delta-chart.schema.json',
   title: 'US government organizations',
   nodes: {
     state: { name: 'Department of State' },
@@ -19,7 +26,13 @@ export const validDocument: OrgDocument = {
         usaid: {},
       },
       hierarchy: [
-        { child: 'state-hq', parent: 'state', relationship: 'internal' },
+        {
+          child: 'state-hq',
+          parent: 'state',
+          relationship: 'internal',
+          note: 'Headquarters reports within State',
+          sources: [{ label: 'State', url: 'https://www.state.gov/' }],
+        },
         {
           child: 'state-hr',
           parent: 'state-hq',
@@ -41,9 +54,10 @@ export const validDocument: OrgDocument = {
           defaultSelected: true,
           patches: [
             {
-              op: 'set-node',
+              type: 'set-node',
               node: 'usaid',
               value: { note: 'Led jointly with State' },
+              sources: [{ label: 'Proposal', url: 'https://example.com/proposal' }],
               semantic: 'shared leadership',
               relatedNodes: ['state'],
             },
@@ -63,6 +77,6 @@ export const validDocument: OrgDocument = {
   ],
 };
 
-export function cloneValidDocument(): OrgDocument {
-  return structuredClone(validDocument);
+export function cloneValidDocument(): DeepMutable<OrgDocument> {
+  return structuredClone(validDocument) as DeepMutable<OrgDocument>;
 }

@@ -39,7 +39,7 @@ describe('published package', () => {
       );
       writeFileSync(
         join(consumerDirectory, 'index.ts'),
-        "import { OrgDeltaChartElement, validateOrgDocument, type OrgDocument } from 'org-delta-chart';\n\nconst element: HTMLElement = new OrgDeltaChartElement();\nconst document = {} as OrgDocument;\nvalidateOrgDocument(document);\n",
+        "import { OrgDeltaChartElement, validateDocument, type OrgDocument } from 'org-delta-chart';\n\nconst element: HTMLElement = new OrgDeltaChartElement();\nconst document = {} as OrgDocument;\nvalidateDocument(document);\n",
       );
       writeFileSync(
         join(consumerDirectory, 'tsconfig.json'),

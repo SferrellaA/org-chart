@@ -6,8 +6,8 @@ export interface Source {
 export interface NodeState {
   name?: string;
   note?: string;
-  sources?: Source[];
-  metadata?: Record<string, unknown>;
+  sources?: readonly Source[];
+  metadata?: Readonly<Record<string, string | number | boolean | null>>;
 }
 
 export interface ImageSymbol {
@@ -25,7 +25,7 @@ export type Symbol = ImageSymbol | TextSymbol;
 
 export interface NodeDefinition extends NodeState {
   name: string;
-  aliases?: string[];
+  aliases?: readonly string[];
   symbol?: Symbol;
 }
 
@@ -35,6 +35,8 @@ export interface HierarchyEdge {
   child: string;
   parent: string;
   relationship: HierarchyRelationship;
+  note?: string;
+  sources?: readonly Source[];
 }
 
 export interface Relationship {
@@ -44,12 +46,12 @@ export interface Relationship {
   target: string;
   label: string;
   note?: string;
-  sources?: Source[];
+  sources?: readonly Source[];
 }
 
 export interface SnapshotState {
   nodes: Record<string, NodeState>;
-  hierarchy: HierarchyEdge[];
+  hierarchy: readonly HierarchyEdge[];
 }
 
 export interface Snapshot extends SnapshotState {
@@ -59,53 +61,54 @@ export interface Snapshot extends SnapshotState {
 
 export interface PatchDetails {
   note?: string;
+  sources?: readonly Source[];
   semantic?: string;
-  relatedNodes?: string[];
+  relatedNodes?: readonly string[];
 }
 
 export interface AddNodePatch extends PatchDetails {
-  op: 'add-node';
+  type: 'add-node';
   node: string;
-  value: NodeState;
+  value?: NodeState;
 }
 
 export interface RemoveNodePatch extends PatchDetails {
-  op: 'remove-node';
+  type: 'remove-node';
   node: string;
 }
 
 export interface SetNodePatch extends PatchDetails {
-  op: 'set-node';
+  type: 'set-node';
   node: string;
   value: NodeState;
 }
 
 export interface SetParentPatch extends PatchDetails {
-  op: 'set-parent';
-  child: string;
+  type: 'set-parent';
+  node: string;
   parent: string;
   relationship: HierarchyRelationship;
 }
 
 export interface RemoveParentPatch extends PatchDetails {
-  op: 'remove-parent';
-  child: string;
+  type: 'remove-parent';
+  node: string;
 }
 
 export interface AddRelationshipPatch extends PatchDetails {
-  op: 'add-relationship';
+  type: 'add-relationship';
   relationship: Relationship;
 }
 
 export interface RemoveRelationshipPatch extends PatchDetails {
-  op: 'remove-relationship';
+  type: 'remove-relationship';
   relationship: string;
 }
 
 export interface SetRelationshipPatch extends PatchDetails {
-  op: 'set-relationship';
+  type: 'set-relationship';
   relationship: string;
-  value: Relationship;
+  value: Partial<Relationship>;
 }
 
 export type Patch =
@@ -121,22 +124,22 @@ export type Patch =
 export interface PatchGroup {
   id: string;
   label: string;
-  patches: Patch[];
+  patches: readonly Patch[];
   defaultSelected?: boolean;
   locked?: boolean;
-  requires?: string[];
-  conflictsWith?: string[];
+  requires?: readonly string[];
+  conflictsWith?: readonly string[];
   note?: string;
-  sources?: Source[];
+  sources?: readonly Source[];
 }
 
 export interface Proposal {
   id: string;
   label: string;
   base: string;
-  complete?: SnapshotState;
-  patches?: Patch[];
-  patchGroups?: PatchGroup[];
+  snapshot?: SnapshotState;
+  patches?: readonly Patch[];
+  patchGroups?: readonly PatchGroup[];
 }
 
 export interface ZoneStyle {
@@ -146,24 +149,25 @@ export interface ZoneStyle {
 export interface Zone {
   id: string;
   label: string;
-  nodes: string[];
+  nodes: readonly string[];
   note?: string;
-  sources?: Source[];
+  sources?: readonly Source[];
   style?: ZoneStyle;
 }
 
 export interface PresentationDefaults {
   initialExpansionDepth?: number;
-  focusNodes?: string[];
+  focusNodes?: readonly string[];
 }
 
 export interface OrgDocument {
+  $schema?: string;
   title: string;
   nodes: Record<string, NodeDefinition>;
-  snapshots: Snapshot[];
-  proposals: Proposal[];
-  relationships?: Relationship[];
-  zones?: Zone[];
+  snapshots: readonly Snapshot[];
+  proposals: readonly Proposal[];
+  relationships?: readonly Relationship[];
+  zones?: readonly Zone[];
   presentation?: PresentationDefaults;
 }
 
@@ -180,11 +184,10 @@ export interface ResolvedParent {
 }
 
 export interface SemanticAnnotation {
-  proposal: string;
   semantic: string;
-  target: string;
-  relatedNodes: readonly string[];
+  nodes: readonly string[];
   note?: string;
+  sources?: readonly Source[];
 }
 
 export interface ResolvedChart {
@@ -201,4 +204,4 @@ export type ValidationResult =
       value: OrgDocument;
       viewErrors: ReadonlyMap<string, readonly string[]>;
     }
-  | { ok: false; errors: string[] };
+  | { ok: false; errors: readonly string[] };

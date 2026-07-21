@@ -1,23 +1,151 @@
 import { describe, expect, it } from 'vitest';
 
-import { validateOrgDocument } from '../src/model/validate';
+import { validateDocument } from '../src/model/validate';
 import type { Proposal } from '../src/model/types';
-import { cloneValidDocument, validDocument } from './fixtures';
+import { cloneValidDocument, validDocument, type DeepMutable } from './fixtures';
 
-describe('validateOrgDocument', () => {
+describe('validateDocument', () => {
   it('accepts the reusable valid document without view errors', () => {
-    expect(validateOrgDocument(validDocument)).toEqual({
+    expect(validateDocument(validDocument)).toEqual({
       ok: true,
       value: validDocument,
       viewErrors: new Map(),
     });
   });
 
+  it('accepts a root $schema identifier', () => {
+    const document = cloneValidDocument() as unknown as Record<string, unknown>;
+    document.$schema = 'https://example.com/org-chart.schema.json';
+
+    expect(validateDocument(document).ok).toBe(true);
+  });
+
+  it('accepts proposal snapshot replacements', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.snapshot = {
+      nodes: structuredClone(document.snapshots[0]!.nodes),
+      hierarchy: structuredClone(document.snapshots[0]!.hierarchy),
+    };
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.viewErrors.size).toBe(0);
+  });
+
+  it('accepts every exact public wire patch shape', () => {
+    const document = cloneValidDocument();
+    delete document.proposals[0]!.patchGroups;
+    document.proposals[0]!.patches = [
+      { type: 'add-node', node: 'usaid' },
+      { type: 'remove-node', node: 'usaid' },
+      { type: 'set-node', node: 'usaid', value: { name: 'USAID' } },
+      {
+        type: 'set-parent',
+        node: 'usaid',
+        parent: 'state-hq',
+        relationship: 'subordinate',
+      },
+      { type: 'remove-parent', node: 'usaid' },
+      {
+        type: 'add-relationship',
+        relationship: {
+          id: 'coordination',
+          type: 'coordination',
+          source: 'state',
+          target: 'usaid',
+          label: 'Coordinates with',
+        },
+      },
+      {
+        type: 'set-relationship',
+        relationship: 'shared-leadership',
+        value: { label: 'Joint leadership' },
+      },
+      { type: 'remove-relationship', relationship: 'shared-leadership' },
+    ];
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.viewErrors.size).toBe(0);
+  });
+
+  it('tracks added relationships for later set and remove patches', () => {
+    const document = cloneValidDocument();
+    delete document.proposals[0]!.patchGroups;
+    document.proposals[0]!.patches = [
+      {
+        type: 'add-relationship',
+        relationship: {
+          id: 'new-relationship',
+          type: 'coordination',
+          source: 'state',
+          target: 'usaid',
+          label: 'Coordinates with',
+        },
+      },
+      {
+        type: 'set-relationship',
+        relationship: 'new-relationship',
+        value: { label: 'Works with' },
+      },
+      { type: 'remove-relationship', relationship: 'new-relationship' },
+    ];
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.viewErrors.size).toBe(0);
+  });
+
+  it('rejects empty relationship replacements', () => {
+    const document = cloneValidDocument();
+    delete document.proposals[0]!.patchGroups;
+    document.proposals[0]!.patches = [
+      {
+        type: 'set-relationship',
+        relationship: 'shared-leadership',
+        value: {},
+      },
+    ];
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.join('\n')).toMatch(/fewer than 1 propert/i);
+  });
+
+  it('reports duplicate added relationship IDs in the proposal view', () => {
+    const document = cloneValidDocument();
+    delete document.proposals[0]!.patchGroups;
+    const relationship = {
+      id: 'new-relationship',
+      type: 'coordination',
+      source: 'state',
+      target: 'usaid',
+      label: 'Coordinates with',
+    };
+    document.proposals[0]!.patches = [
+      { type: 'add-relationship', relationship },
+      { type: 'add-relationship', relationship },
+    ];
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.viewErrors.get('proposal-a')?.join('\n')).toMatch(
+        /duplicate.*new-relationship/i,
+      );
+    }
+  });
+
   it('makes an unknown snapshot hierarchy child fatal', () => {
     const document = cloneValidDocument();
     document.snapshots[0]!.hierarchy[0]!.child = 'missing';
 
-    const result = validateOrgDocument(document);
+    const result = validateDocument(document);
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.errors.join('\n')).toMatch(/current.*missing/i);
@@ -32,7 +160,7 @@ describe('validateOrgDocument', () => {
     });
     document.proposals[0]!.base = 'proposal-b';
 
-    const result = validateOrgDocument(document);
+    const result = validateDocument(document);
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -50,7 +178,7 @@ describe('validateOrgDocument', () => {
       { id: 'proposal-d', label: 'D', base: 'proposal-c' },
     ];
 
-    const result = validateOrgDocument(document);
+    const result = validateDocument(document);
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -67,7 +195,7 @@ describe('validateOrgDocument', () => {
     const document = cloneValidDocument();
     document.proposals[0]!.id = 'current';
 
-    const result = validateOrgDocument(document);
+    const result = validateDocument(document);
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.errors.join('\n')).toMatch(/duplicate.*current/i);
@@ -81,7 +209,7 @@ describe('validateOrgDocument', () => {
       relationship: 'internal',
     });
 
-    const result = validateOrgDocument(document);
+    const result = validateDocument(document);
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.errors.join('\n')).toMatch(/current.*cycle/i);
@@ -97,7 +225,7 @@ describe('validateOrgDocument', () => {
       conflictsWith: ['shared-leadership-group'],
     });
 
-    const result = validateOrgDocument(document);
+    const result = validateDocument(document);
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -118,12 +246,34 @@ describe('validateOrgDocument', () => {
       requires: ['shared-leadership-group'],
     });
 
-    const result = validateOrgDocument(document);
+    const result = validateDocument(document);
 
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.viewErrors.get('proposal-a')?.join('\n')).toMatch(
         /dependency cycle/i,
+      );
+    }
+  });
+
+  it('reports groups that both require and conflict with the same group', () => {
+    const document = cloneValidDocument();
+    const group = document.proposals[0]!.patchGroups![0]!;
+    group.requires = ['alternate-group'];
+    group.conflictsWith = ['alternate-group'];
+    document.proposals[0]!.patchGroups!.push({
+      id: 'alternate-group',
+      label: 'Alternate',
+      patches: [],
+      conflictsWith: ['shared-leadership-group'],
+    });
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.viewErrors.get('proposal-a')?.join('\n')).toMatch(
+        /requires.*conflicts|contradict/i,
       );
     }
   });
@@ -134,19 +284,42 @@ describe('validateOrgDocument', () => {
       { label: 'Local file', url: 'file:///tmp/state.html' },
     ];
 
-    const result = validateOrgDocument(document);
+    const result = validateDocument(document);
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.errors.join('\n')).toMatch(/url.*pattern/i);
   });
 
+  it('accepts primitive and null metadata values', () => {
+    const document = cloneValidDocument();
+    document.nodes.state!.metadata = {
+      active: true,
+      employees: 100,
+      parent: null,
+      abbreviation: 'State',
+    };
+
+    expect(validateDocument(document).ok).toBe(true);
+  });
+
+  it('rejects structured metadata values', () => {
+    const document = cloneValidDocument() as unknown as Record<string, unknown>;
+    const nodes = document.nodes as Record<string, Record<string, unknown>>;
+    nodes.state!.metadata = { nested: { active: true } };
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.join('\n')).toMatch(/metadata/i);
+  });
+
   it('isolates invalid optional proposals while preserving a valid snapshot', () => {
     const document = cloneValidDocument();
-    const invalidProposal: Proposal = {
+    const invalidProposal: DeepMutable<Proposal> = {
       id: 'proposal-invalid',
       label: 'Invalid optional view',
       base: 'current',
-      patches: [{ op: 'remove-node', node: 'missing' }],
+      patches: [{ type: 'remove-node', node: 'missing' }],
     };
     document.proposals.push(invalidProposal, {
       id: 'proposal-descendant',
@@ -154,7 +327,7 @@ describe('validateOrgDocument', () => {
       base: 'proposal-invalid',
     });
 
-    const result = validateOrgDocument(document);
+    const result = validateDocument(document);
 
     expect(result.ok).toBe(true);
     if (result.ok) {
