@@ -9,6 +9,8 @@ export {
   validateSelection,
 } from './model/selection';
 export type { PatchSelection } from './model/selection';
+export { diffCharts } from './model/diff';
+export type * from './model/diff';
 export type * from './model/types';
 
 if (!customElements.get('org-delta-chart')) {
