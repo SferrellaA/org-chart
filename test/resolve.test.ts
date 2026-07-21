@@ -469,4 +469,39 @@ describe('resolveView', () => {
       new ResolutionError('proposal-a/patches/0: relationship value must be an object'),
     );
   });
+
+  it('rejects null proposal patch lists contextually', () => {
+    const document = cloneValidDocument();
+    delete document.proposals[0]!.patchGroups;
+    document.proposals[0]!.patches = null as never;
+
+    expect(() =>
+      resolveView(document, { viewId: 'proposal-a', selectedGroups: [] }),
+    ).toThrowError(new ResolutionError('proposal-a/patches: patches must be an array'));
+  });
+
+  it.each([
+    ['object', {}, false],
+    ['string', 'not-a-list', true],
+  ])('rejects %s patch-group patch lists contextually', (_kind, patches, selected) => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'invalid-list',
+        label: 'Invalid list',
+        patches: patches as never,
+      },
+    ];
+
+    expect(() =>
+      resolveView(document, {
+        viewId: 'proposal-a',
+        selectedGroups: selected ? ['invalid-list'] : [],
+      }),
+    ).toThrowError(
+      new ResolutionError(
+        'proposal-a/patchGroups/0/patches: patches must be an array',
+      ),
+    );
+  });
 });

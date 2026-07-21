@@ -267,14 +267,15 @@ function applyPatch(
 function applyPatchList(
   document: OrgDocument,
   state: MutableResolution,
-  patches: readonly Patch[],
+  patches: unknown,
   path: string,
 ): void {
+  if (!Array.isArray(patches)) fail(path, 'patches must be an array');
   let finalPath = path;
   patches.forEach((patch, index) => {
     const patchPath = `${path}/${index}`;
     finalPath = patchPath;
-    applyPatch(document, state, patch, patchPath);
+    applyPatch(document, state, patch as Patch, patchPath);
   });
   validateHierarchy(state.nodes, state.parents, finalPath);
 }
@@ -321,15 +322,17 @@ function applyProposal(
     state.nodes = replacement.nodes;
     state.parents = replacement.parents;
   }
-  applyPatchList(document, state, proposal.patches ?? [], `${proposalPath}/patches`);
+  applyPatchList(
+    document,
+    state,
+    proposal.patches === undefined ? [] : proposal.patches,
+    `${proposalPath}/patches`,
+  );
   for (const [groupIndex, group] of (proposal.patchGroups ?? []).entries()) {
+    const groupPath = `${proposalPath}/patchGroups/${groupIndex}/patches`;
+    if (!Array.isArray(group.patches)) fail(groupPath, 'patches must be an array');
     if (!group.locked && !selected.has(group.id)) continue;
-    applyPatchList(
-      document,
-      state,
-      group.patches,
-      `${proposalPath}/patchGroups/${groupIndex}/patches`,
-    );
+    applyPatchList(document, state, group.patches, groupPath);
   }
 }
 
