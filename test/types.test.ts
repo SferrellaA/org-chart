@@ -6,6 +6,7 @@ import type {
   PatchGroup,
   ResolvedParent,
   SemanticAnnotation,
+  SetRelationshipPatch,
   Snapshot,
   Source,
   ValidationResult,
@@ -53,10 +54,17 @@ it('exposes readonly collections and exact metadata and annotation shapes', () =
     note: 'Reports through headquarters',
     sources: [source],
   };
+  const renamedRelationship: SetRelationshipPatch = {
+    type: 'set-relationship',
+    relationship: 'existing',
+    // @ts-expect-error Relationship IDs cannot be changed by set patches.
+    value: { id: 'replacement' },
+  };
 
   // @ts-expect-error Metadata values cannot contain objects.
   const invalidState: NodeState = { metadata: { nested: { value: true } } };
   void invalidState;
+  void renamedRelationship;
   void assertReadonlyArrays;
   expect(annotation.nodes).toEqual(['state', 'usaid']);
   expect(state.metadata?.note).toBeNull();

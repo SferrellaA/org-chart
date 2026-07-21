@@ -144,6 +144,7 @@ function proposalErrors(
   knownBases: ReadonlySet<string>,
   knownNodes: ReadonlySet<string>,
   knownRelationships: ReadonlySet<string>,
+  globalIdOwners: ReadonlyMap<string, string>,
 ): { errors: string[]; relationships: Set<string> } {
   const owner = `proposal/${proposal.id}`;
   const errors: string[] = [];
@@ -176,14 +177,24 @@ function proposalErrors(
     patches.forEach((patch, patchIndex) => {
       if (patch.type !== 'add-relationship') return;
       const id = patch.relationship.id;
+      const declarationPath = `${path}/${patchIndex}`;
       const previous = declaredRelationships.get(id);
-      if (knownRelationships.has(id) || previous) {
+      const globalOwner = globalIdOwners.get(id);
+      if (
+        (globalOwner && globalOwner !== declarationPath) ||
+        knownRelationships.has(id) ||
+        previous
+      ) {
         errors.push(
           `${path}/${patchIndex}/relationship/id: duplicate introduced relationship ID "${id}"` +
-            (previous ? ` (already introduced by ${previous})` : ''),
+            (globalOwner && globalOwner !== declarationPath
+              ? ` (already used by ${globalOwner})`
+              : previous
+                ? ` (already introduced by ${previous})`
+                : ''),
         );
       } else {
-        declaredRelationships.set(id, `${path}/${patchIndex}`);
+        declaredRelationships.set(id, declarationPath);
       }
     });
   };
@@ -211,6 +222,11 @@ function proposalErrors(
       });
     }
     for (const conflict of group.conflictsWith ?? []) {
+      if (group.locked && groupById.get(conflict)?.locked) {
+        errors.push(
+          `${groupPath}/conflictsWith: locked groups "${group.id}" and "${conflict}" conflict; selection is impossible`,
+        );
+      }
       if ((group.requires ?? []).includes(conflict)) {
         errors.push(
           `${groupPath}: group "${group.id}" requires and conflicts with "${conflict}"`,
@@ -344,6 +360,23 @@ export function validateDocument(input: unknown): ValidationResult {
   });
   if (fatalErrors.length > 0) return { ok: false, errors: fatalErrors };
 
+  const recordIntroducedOwners = (patches: readonly Patch[], path: string): void => {
+    patches.forEach((patch, patchIndex) => {
+      if (patch.type === 'add-relationship' && !idOwners.has(patch.relationship.id)) {
+        idOwners.set(patch.relationship.id, `${path}/${patchIndex}`);
+      }
+    });
+  };
+  document.proposals.forEach((proposal) => {
+    recordIntroducedOwners(proposal.patches ?? [], `proposal/${proposal.id}/patches`);
+    proposal.patchGroups?.forEach((group, groupIndex) => {
+      recordIntroducedOwners(
+        group.patches,
+        `proposal/${proposal.id}/patchGroups/${groupIndex}/patches`,
+      );
+    });
+  });
+
   const snapshots = new Set(document.snapshots.map((snapshot) => snapshot.id));
   const proposalById = new Map(document.proposals.map((proposal) => [proposal.id, proposal]));
   const knownBases = new Set([...snapshots, ...proposalById.keys()]);
@@ -408,7 +441,13 @@ export function validateDocument(input: unknown): ValidationResult {
     }
 
     if (baseRelationships) {
-      const result = proposalErrors(proposal, knownBases, knownNodes, baseRelationships);
+      const result = proposalErrors(
+        proposal,
+        knownBases,
+        knownNodes,
+        baseRelationships,
+        idOwners,
+      );
       if (result.errors.length > 0) {
         mutableViewErrors.set(proposal.id, result.errors);
       } else {

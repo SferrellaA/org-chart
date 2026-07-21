@@ -348,6 +348,24 @@ describe('validateDocument', () => {
     if (!result.ok) expect(result.errors.join('\n')).toMatch(/fewer than 1 propert/i);
   });
 
+  it('rejects relationship ID replacements', () => {
+    const document = cloneValidDocument() as unknown as Record<string, unknown>;
+    const proposals = document.proposals as Array<Record<string, unknown>>;
+    delete proposals[0]!.patchGroups;
+    proposals[0]!.patches = [
+      {
+        type: 'set-relationship',
+        relationship: 'shared-leadership',
+        value: { id: 'renamed-relationship' },
+      },
+    ];
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.join('\n')).toMatch(/value.*additional properties/i);
+  });
+
   it('reports duplicate added relationship IDs in the proposal view', () => {
     const document = cloneValidDocument();
     delete document.proposals[0]!.patchGroups;
@@ -401,6 +419,36 @@ describe('validateDocument', () => {
     if (result.ok) {
       expect(result.viewErrors.get('proposal-a')?.join('\n')).toMatch(
         /duplicate.*duplicate-group-relationship/i,
+      );
+    }
+  });
+
+  it('reports duplicate relationship IDs introduced by separate proposals', () => {
+    const document = cloneValidDocument();
+    delete document.proposals[0]!.patchGroups;
+    const relationship = {
+      id: 'cross-proposal-relationship',
+      type: 'coordination',
+      source: 'state',
+      target: 'usaid',
+      label: 'Coordinates with',
+    };
+    document.proposals[0]!.patches = [
+      { type: 'add-relationship', relationship },
+    ];
+    document.proposals.push({
+      id: 'proposal-b',
+      label: 'Separate branch',
+      base: 'current',
+      patches: [{ type: 'add-relationship', relationship }],
+    });
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.viewErrors.get('proposal-b')?.join('\n')).toMatch(
+        /duplicate.*cross-proposal-relationship/i,
       );
     }
   });
@@ -580,6 +628,64 @@ describe('validateDocument', () => {
     if (result.ok) {
       expect(result.viewErrors.get('proposal-a')?.join('\n')).toMatch(
         /requires.*conflicts|contradict/i,
+      );
+    }
+  });
+
+  it('reports mutually conflicting locked groups as impossible selection', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'locked-a',
+        label: 'Locked A',
+        locked: true,
+        conflictsWith: ['locked-b'],
+        patches: [],
+      },
+      {
+        id: 'locked-b',
+        label: 'Locked B',
+        locked: true,
+        conflictsWith: ['locked-a'],
+        patches: [],
+      },
+    ];
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.viewErrors.get('proposal-a')?.join('\n')).toMatch(
+        /locked.*conflict.*impossible/i,
+      );
+    }
+  });
+
+  it.each([
+    ['node', 'state'],
+    ['proposal', 'proposal-a'],
+    ['patch group', 'shared-leadership-group'],
+  ])('rejects proposal relationship IDs colliding with a %s ID', (_kind, id) => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patches = [
+      {
+        type: 'add-relationship',
+        relationship: {
+          id,
+          type: 'coordination',
+          source: 'state',
+          target: 'usaid',
+          label: 'Coordinates with',
+        },
+      },
+    ];
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.viewErrors.get('proposal-a')?.join('\n')).toMatch(
+        new RegExp(`duplicate.*${id}`, 'i'),
       );
     }
   });

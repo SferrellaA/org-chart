@@ -108,7 +108,7 @@ export interface RemoveRelationshipPatch extends PatchDetails {
 export interface SetRelationshipPatch extends PatchDetails {
   type: 'set-relationship';
   relationship: string;
-  value: Partial<Relationship>;
+  value: Partial<Omit<Relationship, 'id'>>;
 }
 
 export type Patch =
