@@ -259,6 +259,49 @@ describe('validateDocument', () => {
     }
   });
 
+  it('does not pre-apply a later locked group for an earlier optional group', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'early-optional-update',
+        label: 'Early optional update',
+        patches: [
+          {
+            type: 'set-relationship',
+            relationship: 'later-locked-relationship',
+            value: { label: 'Works with' },
+          },
+        ],
+      },
+      {
+        id: 'later-locked-addition',
+        label: 'Later locked addition',
+        locked: true,
+        patches: [
+          {
+            type: 'add-relationship',
+            relationship: {
+              id: 'later-locked-relationship',
+              type: 'coordination',
+              source: 'state',
+              target: 'usaid',
+              label: 'Coordinates with',
+            },
+          },
+        ],
+      },
+    ];
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.viewErrors.get('proposal-a')?.join('\n')).toMatch(
+        /patchGroups\/0.*unknown relationship "later-locked-relationship"/i,
+      );
+    }
+  });
+
   it('inherits relationships from locked groups in a base proposal', () => {
     const document = cloneValidDocument();
     document.proposals[0]!.patchGroups = [

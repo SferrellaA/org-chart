@@ -296,6 +296,7 @@ function proposalErrors(
   const guaranteedGroups = dependencyClosure(
     groups.filter((group) => group.locked).map((group) => group.id),
   );
+  const unconditionalRelationships = new Set(proposalRelationships);
   for (const [groupIndex, group] of groups.entries()) {
     if (!guaranteedGroups.has(group.id)) continue;
     for (const conflict of group.conflictsWith ?? []) {
@@ -311,8 +312,8 @@ function proposalErrors(
   for (const group of groups) {
     if (guaranteedGroups.has(group.id) || group.patches.length === 0) continue;
     const selected = dependencyClosure([group.id]);
-    guaranteedGroups.forEach((id) => selected.delete(id));
-    const groupRelationships = new Set(proposalRelationships);
+    guaranteedGroups.forEach((id) => selected.add(id));
+    const groupRelationships = new Set(unconditionalRelationships);
     applyGroups(selected, groupRelationships, new Set<string>());
   }
   return { errors: [...new Set(errors)], relationships: proposalRelationships };
