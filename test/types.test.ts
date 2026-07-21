@@ -4,6 +4,7 @@ import type {
   NodeState,
   OrgDocument,
   PatchGroup,
+  ResolvedParent,
   SemanticAnnotation,
   Snapshot,
   Source,
@@ -16,6 +17,7 @@ function assertReadonlyArrays(
   group: PatchGroup,
   state: NodeState,
   result: ValidationResult,
+  parent: ResolvedParent,
 ): void {
   // @ts-expect-error Public document arrays are immutable.
   document.proposals.push({ id: 'x', label: 'X', base: 'current' });
@@ -29,6 +31,8 @@ function assertReadonlyArrays(
     // @ts-expect-error Fatal validation errors are immutable.
     result.errors.push('extra error');
   }
+  // @ts-expect-error Resolved parent sources are immutable.
+  parent.sources?.push({ label: 'X', url: 'https://example.com' });
 }
 
 it('exposes readonly collections and exact metadata and annotation shapes', () => {
@@ -43,6 +47,12 @@ it('exposes readonly collections and exact metadata and annotation shapes', () =
     note: 'Applies to both nodes',
     sources: [source],
   };
+  const parent: ResolvedParent = {
+    parent: 'state',
+    relationship: 'internal',
+    note: 'Reports through headquarters',
+    sources: [source],
+  };
 
   // @ts-expect-error Metadata values cannot contain objects.
   const invalidState: NodeState = { metadata: { nested: { value: true } } };
@@ -50,4 +60,5 @@ it('exposes readonly collections and exact metadata and annotation shapes', () =
   void assertReadonlyArrays;
   expect(annotation.nodes).toEqual(['state', 'usaid']);
   expect(state.metadata?.note).toBeNull();
+  expect(parent.note).toBe('Reports through headquarters');
 });

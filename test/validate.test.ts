@@ -99,6 +99,80 @@ describe('validateDocument', () => {
     if (result.ok) expect(result.viewErrors.size).toBe(0);
   });
 
+  it('carries relationship state from a base proposal to its descendant', () => {
+    const document = cloneValidDocument();
+    delete document.proposals[0]!.patchGroups;
+    document.proposals[0]!.patches = [
+      {
+        type: 'add-relationship',
+        relationship: {
+          id: 'base-relationship',
+          type: 'coordination',
+          source: 'state',
+          target: 'usaid',
+          label: 'Coordinates with',
+        },
+      },
+    ];
+    document.proposals.push({
+      id: 'proposal-b',
+      label: 'Descendant proposal',
+      base: 'proposal-a',
+      patches: [
+        {
+          type: 'set-relationship',
+          relationship: 'base-relationship',
+          value: { label: 'Works with' },
+        },
+        { type: 'remove-relationship', relationship: 'base-relationship' },
+      ],
+    });
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.viewErrors.size).toBe(0);
+  });
+
+  it('carries relationship state through patch groups in document order', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'relationship-addition',
+        label: 'Add relationship',
+        patches: [
+          {
+            type: 'add-relationship',
+            relationship: {
+              id: 'group-relationship',
+              type: 'coordination',
+              source: 'state',
+              target: 'usaid',
+              label: 'Coordinates with',
+            },
+          },
+        ],
+      },
+      {
+        id: 'relationship-update',
+        label: 'Update relationship',
+        patches: [
+          {
+            type: 'set-relationship',
+            relationship: 'group-relationship',
+            value: { label: 'Works with' },
+          },
+          { type: 'remove-relationship', relationship: 'group-relationship' },
+        ],
+      },
+    ];
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.viewErrors.size).toBe(0);
+  });
+
   it('rejects empty relationship replacements', () => {
     const document = cloneValidDocument();
     delete document.proposals[0]!.patchGroups;

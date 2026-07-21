@@ -170,7 +170,7 @@ function proposalErrors(
   knownBases: ReadonlySet<string>,
   knownNodes: ReadonlySet<string>,
   knownRelationships: ReadonlySet<string>,
-): string[] {
+): { errors: string[]; relationships: Set<string> } {
   const owner = `proposal/${proposal.id}`;
   const errors: string[] = [];
   const proposalRelationships = new Set(knownRelationships);
@@ -199,7 +199,6 @@ function proposalErrors(
   const groupById = new Map(groups.map((group) => [group.id, group]));
   for (const [groupIndex, group] of groups.entries()) {
     const groupPath = `${owner}/patchGroups/${groupIndex}`;
-    const groupRelationships = new Set(proposalRelationships);
     for (const [kind, references] of [
       ['requires', group.requires ?? []],
       ['conflictsWith', group.conflictsWith ?? []],
@@ -226,7 +225,7 @@ function proposalErrors(
           `${groupPath}/patches/${patchIndex}`,
           patch,
           knownNodes,
-          groupRelationships,
+          proposalRelationships,
           introducedRelationships,
         ),
       );
@@ -240,7 +239,7 @@ function proposalErrors(
   if (dependencyCycle) {
     errors.push(`${owner}/patchGroups: dependency cycle ${dependencyCycle.join(' -> ')}`);
   }
-  return errors;
+  return { errors, relationships: proposalRelationships };
 }
 
 export function validateDocument(input: unknown): ValidationResult {
@@ -300,10 +299,43 @@ export function validateDocument(input: unknown): ValidationResult {
   const knownRelationships = new Set((document.relationships ?? []).map((item) => item.id));
   const mutableViewErrors = new Map<string, string[]>();
 
-  for (const proposal of document.proposals) {
-    const errors = proposalErrors(proposal, knownBases, knownNodes, knownRelationships);
-    if (errors.length > 0) mutableViewErrors.set(proposal.id, errors);
-  }
+  const relationshipStates = new Map<string, ReadonlySet<string>>();
+  const resolvingProposals = new Set<string>();
+  const resolveProposalRelationships = (proposal: Proposal): ReadonlySet<string> | undefined => {
+    const cached = relationshipStates.get(proposal.id);
+    if (cached) return cached;
+    if (resolvingProposals.has(proposal.id)) return undefined;
+
+    resolvingProposals.add(proposal.id);
+    let baseRelationships: ReadonlySet<string> | undefined = knownRelationships;
+    const baseProposal = proposalById.get(proposal.base);
+    if (baseProposal) {
+      baseRelationships = resolveProposalRelationships(baseProposal);
+      if (!baseRelationships) {
+        mutableViewErrors.set(proposal.id, [
+          `proposal/${proposal.id}/base: base proposal "${proposal.base}" is invalid`,
+        ]);
+      }
+    }
+
+    if (baseRelationships) {
+      const result = proposalErrors(
+        proposal,
+        knownBases,
+        knownNodes,
+        baseRelationships,
+      );
+      if (result.errors.length > 0) {
+        mutableViewErrors.set(proposal.id, result.errors);
+      } else {
+        relationshipStates.set(proposal.id, result.relationships);
+      }
+    }
+    resolvingProposals.delete(proposal.id);
+    return relationshipStates.get(proposal.id);
+  };
+
+  for (const proposal of document.proposals) resolveProposalRelationships(proposal);
 
   const processedBases = new Set<string>();
   const baseCycles: string[][] = [];

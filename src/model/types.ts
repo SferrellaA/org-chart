@@ -181,6 +181,8 @@ export interface ResolvedNode extends NodeState {
 export interface ResolvedParent {
   parent: string;
   relationship: HierarchyRelationship;
+  note?: string;
+  sources?: readonly Source[];
 }
 
 export interface SemanticAnnotation {
