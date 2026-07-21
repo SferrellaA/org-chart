@@ -350,44 +350,6 @@ export function validateDocument(input: unknown): ValidationResult {
   const knownRelationships = new Set((document.relationships ?? []).map((item) => item.id));
   const mutableViewErrors = new Map<string, string[]>();
 
-  const relationshipStates = new Map<string, ReadonlySet<string>>();
-  const resolvingProposals = new Set<string>();
-  const resolveProposalRelationships = (proposal: Proposal): ReadonlySet<string> | undefined => {
-    const cached = relationshipStates.get(proposal.id);
-    if (cached) return cached;
-    if (resolvingProposals.has(proposal.id)) return undefined;
-
-    resolvingProposals.add(proposal.id);
-    let baseRelationships: ReadonlySet<string> | undefined = knownRelationships;
-    const baseProposal = proposalById.get(proposal.base);
-    if (baseProposal) {
-      baseRelationships = resolveProposalRelationships(baseProposal);
-      if (!baseRelationships) {
-        mutableViewErrors.set(proposal.id, [
-          `proposal/${proposal.id}/base: base proposal "${proposal.base}" is invalid`,
-        ]);
-      }
-    }
-
-    if (baseRelationships) {
-      const result = proposalErrors(
-        proposal,
-        knownBases,
-        knownNodes,
-        baseRelationships,
-      );
-      if (result.errors.length > 0) {
-        mutableViewErrors.set(proposal.id, result.errors);
-      } else {
-        relationshipStates.set(proposal.id, result.relationships);
-      }
-    }
-    resolvingProposals.delete(proposal.id);
-    return relationshipStates.get(proposal.id);
-  };
-
-  for (const proposal of document.proposals) resolveProposalRelationships(proposal);
-
   const processedBases = new Set<string>();
   const baseCycles: string[][] = [];
   for (const start of proposalById.keys()) {
@@ -407,26 +369,71 @@ export function validateDocument(input: unknown): ValidationResult {
     }
     path.forEach((id) => processedBases.add(id));
   }
+  const cycleProposalIds = new Set<string>();
   for (const baseCycle of baseCycles) {
     const cycleDescription = baseCycle.join(' -> ');
     for (const id of new Set(baseCycle)) {
-      const errors = mutableViewErrors.get(id) ?? [];
-      errors.push(`proposal/${id}/base: base cycle ${cycleDescription}`);
-      mutableViewErrors.set(id, errors);
+      cycleProposalIds.add(id);
+      mutableViewErrors.set(id, [`proposal/${id}/base: base cycle ${cycleDescription}`]);
     }
   }
 
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const proposal of document.proposals) {
-      if (mutableViewErrors.has(proposal.id)) continue;
-      if (mutableViewErrors.has(proposal.base)) {
+  const dependentProposals = new Map<string, Proposal[]>();
+  const remainingBases = new Map<string, number>();
+  const readyProposals: Proposal[] = [];
+  for (const proposal of document.proposals) {
+    if (proposalById.has(proposal.base)) {
+      remainingBases.set(proposal.id, 1);
+      const dependents = dependentProposals.get(proposal.base) ?? [];
+      dependents.push(proposal);
+      dependentProposals.set(proposal.base, dependents);
+    } else {
+      remainingBases.set(proposal.id, 0);
+      readyProposals.push(proposal);
+    }
+  }
+
+  const relationshipStates = new Map<string, ReadonlySet<string>>();
+  for (let cursor = 0; cursor < readyProposals.length; cursor += 1) {
+    const proposal = readyProposals[cursor]!;
+    const baseProposal = proposalById.get(proposal.base);
+    let baseRelationships: ReadonlySet<string> | undefined = knownRelationships;
+    if (baseProposal) {
+      baseRelationships = relationshipStates.get(baseProposal.id);
+      if (!baseRelationships) {
         mutableViewErrors.set(proposal.id, [
           `proposal/${proposal.id}/base: base proposal "${proposal.base}" is invalid`,
         ]);
-        changed = true;
       }
+    }
+
+    if (baseRelationships) {
+      const result = proposalErrors(proposal, knownBases, knownNodes, baseRelationships);
+      if (result.errors.length > 0) {
+        mutableViewErrors.set(proposal.id, result.errors);
+      } else {
+        relationshipStates.set(proposal.id, result.relationships);
+      }
+    }
+
+    for (const dependent of dependentProposals.get(proposal.id) ?? []) {
+      const remaining = remainingBases.get(dependent.id)! - 1;
+      remainingBases.set(dependent.id, remaining);
+      if (remaining === 0) readyProposals.push(dependent);
+    }
+  }
+
+  const invalidQueue = [...cycleProposalIds];
+  const propagatedInvalidIds = new Set(invalidQueue);
+  for (let cursor = 0; cursor < invalidQueue.length; cursor += 1) {
+    const invalidId = invalidQueue[cursor]!;
+    for (const dependent of dependentProposals.get(invalidId) ?? []) {
+      if (propagatedInvalidIds.has(dependent.id)) continue;
+      propagatedInvalidIds.add(dependent.id);
+      mutableViewErrors.set(dependent.id, [
+        `proposal/${dependent.id}/base: base proposal "${dependent.base}" is invalid`,
+      ]);
+      invalidQueue.push(dependent.id);
     }
   }
 

@@ -315,6 +315,22 @@ describe('validateDocument', () => {
     expect(result?.ok).toBe(true);
   });
 
+  it('validates a 15,000-proposal base chain without overflowing', () => {
+    const document = cloneValidDocument();
+    document.proposals = Array.from({ length: 15_000 }, (_, index) => ({
+      id: `proposal-${index}`,
+      label: `Proposal ${index}`,
+      base: index === 14_999 ? 'current' : `proposal-${index + 1}`,
+    }));
+
+    let result: ReturnType<typeof validateDocument> | undefined;
+    expect(() => {
+      result = validateDocument(document);
+    }).not.toThrow();
+    expect(result?.ok).toBe(true);
+    if (result?.ok) expect(result.viewErrors.size).toBe(0);
+  });
+
   it('rejects empty relationship replacements', () => {
     const document = cloneValidDocument();
     delete document.proposals[0]!.patchGroups;
