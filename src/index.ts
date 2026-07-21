@@ -12,6 +12,17 @@ export type { PatchSelection } from './model/selection';
 export { diffCharts } from './model/diff';
 export type * from './model/diff';
 export type * from './model/types';
+export { buildRenderView } from './presentation/build-view';
+export type { BuildRenderViewOptions } from './presentation/build-view';
+export {
+  changeDetails,
+  hierarchyDetails,
+  nodeDetails,
+  patchGroupDetails,
+  relationshipDetails,
+} from './presentation/notes';
+export type { DetailsItem } from './presentation/notes';
+export type * from './renderer/types';
 
 if (!customElements.get('org-delta-chart')) {
   customElements.define('org-delta-chart', OrgDeltaChartElement);
