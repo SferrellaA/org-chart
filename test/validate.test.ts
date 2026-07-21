@@ -216,6 +216,49 @@ describe('validateDocument', () => {
     if (result.ok) expect(result.viewErrors.size).toBe(0);
   });
 
+  it('does not reorder a later required group before its dependent', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'relationship-update',
+        label: 'Update relationship',
+        requires: ['relationship-addition'],
+        patches: [
+          {
+            type: 'set-relationship',
+            relationship: 'later-relationship',
+            value: { label: 'Works with' },
+          },
+        ],
+      },
+      {
+        id: 'relationship-addition',
+        label: 'Add relationship later',
+        patches: [
+          {
+            type: 'add-relationship',
+            relationship: {
+              id: 'later-relationship',
+              type: 'coordination',
+              source: 'state',
+              target: 'usaid',
+              label: 'Coordinates with',
+            },
+          },
+        ],
+      },
+    ];
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.viewErrors.get('proposal-a')?.join('\n')).toMatch(
+        /patchGroups\/0.*unknown relationship "later-relationship"/i,
+      );
+    }
+  });
+
   it('inherits relationships from locked groups in a base proposal', () => {
     const document = cloneValidDocument();
     document.proposals[0]!.patchGroups = [

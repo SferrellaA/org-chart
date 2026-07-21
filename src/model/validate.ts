@@ -277,8 +277,7 @@ function proposalErrors(
     relationships: Set<string>,
     introduced: Set<string>,
   ): void => {
-    for (const groupIndex of groupOrder) {
-      const group = groups[groupIndex]!;
+    for (const [groupIndex, group] of groups.entries()) {
       if (!selected.has(group.id)) continue;
       group.patches.forEach((patch, patchIndex) => {
         errors.push(
