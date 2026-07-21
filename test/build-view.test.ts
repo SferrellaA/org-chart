@@ -222,6 +222,66 @@ describe('buildRenderView', () => {
     });
   });
 
+  it('aggregates hidden source and target descendants to their nearest revealed internal ancestor', () => {
+    const relationships = new Map<string, Relationship>([
+      [
+        'hidden-source',
+        { id: 'hidden-source', type: 'line', source: 'source-leaf', target: 'other', label: 'From' },
+      ],
+      [
+        'hidden-target',
+        { id: 'hidden-target', type: 'line', source: 'other', target: 'target-leaf', label: 'To' },
+      ],
+      [
+        'collapsed-loop',
+        {
+          id: 'collapsed-loop',
+          type: 'line',
+          source: 'source-leaf',
+          target: 'target-leaf',
+          label: 'Within',
+        },
+      ],
+    ]);
+    const value = chart(
+      ['root', 'revealed', 'source-leaf', 'target-leaf', 'other'],
+      [
+        ['revealed', { parent: 'root', relationship: 'internal' }],
+        ['source-leaf', { parent: 'revealed', relationship: 'internal' }],
+        ['target-leaf', { parent: 'revealed', relationship: 'internal' }],
+        ['other', { parent: 'root', relationship: 'subordinate' }],
+      ],
+      { relationships },
+    );
+
+    const result = buildRenderView(value, diff([]), {
+      ...options,
+      showInternal: false,
+      revealedInternalIds: new Set(['revealed']),
+    });
+
+    expect(result.relationships).toEqual([
+      {
+        id: 'hidden-source',
+        source: 'revealed',
+        target: 'other',
+        label: 'From',
+        type: 'line',
+        aggregated: true,
+        diffKind: 'unchanged',
+      },
+      {
+        id: 'hidden-target',
+        source: 'other',
+        target: 'revealed',
+        label: 'To',
+        type: 'line',
+        aggregated: true,
+        diffKind: 'unchanged',
+      },
+    ]);
+  });
+
   it('expands the configured initial depth and all outer paths to focus nodes', () => {
     const value = chart(
       ['root', 'child', 'grandchild', 'internal'],

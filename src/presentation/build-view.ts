@@ -129,6 +129,25 @@ function relationshipValues(chart: ResolvedChart, diff: ChartDiff): Relationship
   return result;
 }
 
+function visibleRelationshipAnchor(
+  endpoint: string,
+  chart: ResolvedChart,
+  projections: ReadonlyMap<string, Projection>,
+  visibleInternal: ReadonlySet<string>,
+): string {
+  let current = endpoint;
+  const visited = new Set<string>();
+  while (!visited.has(current)) {
+    visited.add(current);
+    const projection = projections.get(current);
+    if (!projection || !projection.internal || visibleInternal.has(current)) return current;
+    const parent = chart.parents.get(current)?.parent;
+    if (parent === undefined) return projection.outerId;
+    current = parent;
+  }
+  return endpoint;
+}
+
 export function buildRenderView(
   chart: ResolvedChart,
   diff: ChartDiff,
@@ -215,16 +234,22 @@ export function buildRenderView(
   const relationships: RenderRelationship[] = [];
   if (options.showRelationships) {
     for (const relationship of relationshipValues(chart, diff)) {
-      const sourceProjection = projections.get(relationship.source);
-      const targetProjection = projections.get(relationship.target);
-      const sourceHidden = sourceProjection?.internal && !visibleInternal.has(relationship.source);
-      const targetHidden = targetProjection?.internal && !visibleInternal.has(relationship.target);
-      const source = sourceHidden ? sourceProjection.outerId : relationship.source;
-      const target = targetHidden ? targetProjection.outerId : relationship.target;
+      const source = visibleRelationshipAnchor(
+        relationship.source,
+        chart,
+        projections,
+        visibleInternal,
+      );
+      const target = visibleRelationshipAnchor(
+        relationship.target,
+        chart,
+        projections,
+        visibleInternal,
+      );
       if ((!projections.has(source) && !ghostNodes.has(source)) || (!projections.has(target) && !ghostNodes.has(target))) {
         continue;
       }
-      const aggregated = Boolean(sourceHidden || targetHidden);
+      const aggregated = source !== relationship.source || target !== relationship.target;
       if (aggregated && source === target && relationship.source !== relationship.target) continue;
       relationships.push({
         id: relationship.id,
