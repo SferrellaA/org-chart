@@ -316,6 +316,78 @@ describe('patch selection', () => {
     expect(result.nodes.get('new')).toMatchObject({ name: 'New node', note: 'Added' });
   });
 
+  it('reapplies an equal historical write after an intervening state change', () => {
+    const document = cloneValidDocument();
+    document.nodes.usaid!.name = 'Talent';
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'a-people',
+        label: 'People first',
+        patches: [{ type: 'set-node', node: 'usaid', value: { name: 'People' } }],
+      },
+      {
+        id: 'b-talent',
+        label: 'Talent between',
+        patches: [
+          { type: 'remove-node', node: 'usaid' },
+          { type: 'add-node', node: 'usaid' },
+        ],
+      },
+      {
+        id: 'c-people',
+        label: 'People final',
+        patches: [{ type: 'set-node', node: 'usaid', value: { name: 'People' } }],
+      },
+    ];
+
+    const result = resolveView(document, {
+      viewId: 'proposal-a',
+      selectedGroups: ['a-people', 'b-talent', 'c-people'],
+    });
+
+    expect(result.nodes.get('usaid')?.name).toBe('People');
+  });
+
+  it('emits every ordered annotation for duplicate equal selected patches', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'first',
+        label: 'First narrative',
+        patches: [
+          {
+            type: 'set-node',
+            node: 'usaid',
+            value: { note: 'Shared state' },
+            semantic: 'first narrative',
+          },
+        ],
+      },
+      {
+        id: 'second',
+        label: 'Second narrative',
+        patches: [
+          {
+            type: 'set-node',
+            node: 'usaid',
+            value: { note: 'Shared state' },
+            semantic: 'second narrative',
+          },
+        ],
+      },
+    ];
+
+    const result = resolveView(document, {
+      viewId: 'proposal-a',
+      selectedGroups: ['first', 'second'],
+    });
+
+    expect(result.semanticAnnotations.map((annotation) => annotation.semantic)).toEqual([
+      'first narrative',
+      'second narrative',
+    ]);
+  });
+
   it('rejects incomplete manual resolver selections and accepts valid selections', () => {
     const document = cloneValidDocument();
     document.proposals[0]!.patchGroups = [

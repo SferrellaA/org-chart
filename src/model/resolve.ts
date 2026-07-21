@@ -12,7 +12,7 @@ import type {
   SnapshotState,
   Source,
 } from './types';
-import { concretePatchWrites, validateSelection } from './selection';
+import { validateSelection } from './selection';
 
 export interface ResolveOptions {
   viewId: string;
@@ -178,24 +178,64 @@ function validateParentChange(
   }
 }
 
+function valuesEqual(first: unknown, second: unknown): boolean {
+  if (Object.is(first, second)) return true;
+  if (typeof first !== typeof second || first === null || second === null) return false;
+  if (Array.isArray(first) || Array.isArray(second)) {
+    return (
+      Array.isArray(first) &&
+      Array.isArray(second) &&
+      first.length === second.length &&
+      first.every((value, index) => valuesEqual(value, second[index]))
+    );
+  }
+  if (typeof first !== 'object') return false;
+  const firstRecord = first as Record<string, unknown>;
+  const secondRecord = second as Record<string, unknown>;
+  const firstKeys = Object.keys(firstRecord);
+  const secondKeys = Object.keys(secondRecord);
+  return (
+    firstKeys.length === secondKeys.length &&
+    firstKeys.every(
+      (key) => Object.hasOwn(secondRecord, key) && valuesEqual(firstRecord[key], secondRecord[key]),
+    )
+  );
+}
+
+function hasEqualFields(current: object, written: object): boolean {
+  return Object.entries(written).every(([key, value]) =>
+    valuesEqual((current as Record<string, unknown>)[key], value),
+  );
+}
+
 function applyPatch(
   document: OrgDocument,
   state: MutableResolution,
   patch: Patch,
   path: string,
+  idempotent = false,
 ): void {
   if (!isObject(patch)) fail(path, 'patch must be an object');
   let annotationRelationship: Relationship | undefined;
   switch (patch.type) {
     case 'add-node': {
-      if (state.nodes.has(patch.node)) fail(path, `node "${patch.node}" already exists`);
+      const existing = state.nodes.get(patch.node);
+      if (existing) {
+        if (!idempotent || !hasEqualFields(existing, patch.value ?? {})) {
+          fail(path, `node "${patch.node}" already exists`);
+        }
+        break;
+      }
       const definition = document.nodes[patch.node];
       if (!definition) fail(path, `node "${patch.node}" does not have a definition`);
       state.nodes.set(patch.node, cloneNode(patch.node, { ...definition, ...patch.value }));
       break;
     }
     case 'remove-node': {
-      requireNode(state, patch.node, path);
+      if (!state.nodes.has(patch.node)) {
+        if (idempotent) break;
+        fail(path, `node "${patch.node}" does not exist`);
+      }
       state.nodes.delete(patch.node);
       state.parents.delete(patch.node);
       for (const [child, edge] of state.parents) {
@@ -210,19 +250,22 @@ function applyPatch(
     }
     case 'set-node': {
       const node = requireNode(state, patch.node, path);
+      if (idempotent && hasEqualFields(node, patch.value)) break;
       state.nodes.set(patch.node, cloneNode(patch.node, { ...node, ...patch.value }));
       break;
     }
     case 'set-parent': {
-      requireNode(state, patch.node, path);
-      requireNode(state, patch.parent, path);
-      validateParentChange(state, patch.node, patch.parent, path);
-      state.parents.set(patch.node, {
+      const parent = {
         parent: patch.parent,
         relationship: patch.relationship,
         note: patch.note,
         sources: cloneSources(patch.sources),
-      } as ResolvedParent);
+      } as ResolvedParent;
+      if (idempotent && valuesEqual(state.parents.get(patch.node), parent)) break;
+      requireNode(state, patch.node, path);
+      requireNode(state, patch.parent, path);
+      validateParentChange(state, patch.node, patch.parent, path);
+      state.parents.set(patch.node, parent);
       break;
     }
     case 'remove-parent':
@@ -231,7 +274,9 @@ function applyPatch(
       break;
     case 'add-relationship':
       if (!isObject(patch.relationship)) fail(path, 'relationship must be an object');
-      if (state.relationships.has(patch.relationship.id)) {
+      annotationRelationship = state.relationships.get(patch.relationship.id);
+      if (annotationRelationship) {
+        if (idempotent && valuesEqual(annotationRelationship, patch.relationship)) break;
         fail(path, `relationship "${patch.relationship.id}" already exists`);
       }
       requireNode(state, patch.relationship.source, path);
@@ -240,12 +285,20 @@ function applyPatch(
       state.relationships.set(patch.relationship.id, annotationRelationship);
       break;
     case 'remove-relationship':
-      annotationRelationship = requireRelationship(state, patch.relationship, path);
+      annotationRelationship = state.relationships.get(patch.relationship);
+      if (!annotationRelationship) {
+        if (idempotent) break;
+        fail(path, `relationship "${patch.relationship}" does not exist`);
+      }
       state.relationships.delete(patch.relationship);
       break;
     case 'set-relationship': {
       const relationship = requireRelationship(state, patch.relationship, path);
       if (!isObject(patch.value)) fail(path, 'relationship value must be an object');
+      if (idempotent && hasEqualFields(relationship, patch.value)) {
+        annotationRelationship = relationship;
+        break;
+      }
       if (patch.value.source) requireNode(state, patch.value.source, path);
       if (patch.value.target) requireNode(state, patch.value.target, path);
       annotationRelationship = cloneRelationship({
@@ -286,29 +339,14 @@ function applySelectedPatchGroup(
   state: MutableResolution,
   patches: readonly Patch[],
   path: string,
-  previousGroupWrites: Map<string, string>,
 ): void {
-  const groupWrites = new Map<string, string>();
   let finalPath = path;
   patches.forEach((patch, index) => {
     const patchPath = `${path}/${index}`;
     finalPath = patchPath;
-    let writes: ReturnType<typeof concretePatchWrites> = [];
-    if (isObject(patch)) {
-      try {
-        writes = concretePatchWrites(patch);
-      } catch {
-        // applyPatch retains the contextual runtime error for malformed patch values.
-      }
-    }
-    const duplicate =
-      writes.length > 0 &&
-      writes.every((write) => previousGroupWrites.get(write.target) === write.fingerprint);
-    if (!duplicate) applyPatch(document, state, patch, patchPath);
-    for (const write of writes) groupWrites.set(write.target, write.fingerprint);
+    applyPatch(document, state, patch, patchPath, true);
   });
   validateHierarchy(state.nodes, state.parents, finalPath);
-  groupWrites.forEach((fingerprint, target) => previousGroupWrites.set(target, fingerprint));
 }
 
 function globalRelationships(document: OrgDocument): Map<string, Relationship> {
@@ -359,12 +397,11 @@ function applyProposal(
     proposal.patches === undefined ? [] : proposal.patches,
     `${proposalPath}/patches`,
   );
-  const previousGroupWrites = new Map<string, string>();
   for (const [groupIndex, group] of (proposal.patchGroups ?? []).entries()) {
     const groupPath = `${proposalPath}/patchGroups/${groupIndex}/patches`;
     if (!Array.isArray(group.patches)) fail(groupPath, 'patches must be an array');
     if (!selected.has(group.id)) continue;
-    applySelectedPatchGroup(document, state, group.patches, groupPath, previousGroupWrites);
+    applySelectedPatchGroup(document, state, group.patches, groupPath);
   }
 }
 
