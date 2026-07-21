@@ -30,6 +30,7 @@ interface MutableResolution {
   nodes: Map<string, ResolvedNode>;
   parents: Map<string, ResolvedParent>;
   relationships: Map<string, Relationship>;
+  relationshipTombstones: Map<string, Relationship>;
   semanticAnnotations: SemanticAnnotation[];
   presentation: PresentationDefaults;
 }
@@ -243,6 +244,7 @@ function applyPatch(
       }
       for (const [id, relationship] of state.relationships) {
         if (relationship.source === patch.node || relationship.target === patch.node) {
+          if (idempotent) state.relationshipTombstones.set(id, cloneRelationship(relationship));
           state.relationships.delete(id);
         }
       }
@@ -269,6 +271,7 @@ function applyPatch(
       break;
     }
     case 'remove-parent':
+      if (idempotent && (!state.nodes.has(patch.node) || !state.parents.has(patch.node))) break;
       requireNode(state, patch.node, path);
       state.parents.delete(patch.node);
       break;
@@ -285,10 +288,18 @@ function applyPatch(
       state.relationships.set(patch.relationship.id, annotationRelationship);
       break;
     case 'remove-relationship':
-      annotationRelationship = state.relationships.get(patch.relationship);
+      annotationRelationship =
+        state.relationships.get(patch.relationship) ??
+        (idempotent ? state.relationshipTombstones.get(patch.relationship) : undefined);
       if (!annotationRelationship) {
         if (idempotent) break;
         fail(path, `relationship "${patch.relationship}" does not exist`);
+      }
+      if (idempotent && state.relationships.has(patch.relationship)) {
+        state.relationshipTombstones.set(
+          patch.relationship,
+          cloneRelationship(annotationRelationship),
+        );
       }
       state.relationships.delete(patch.relationship);
       break;
@@ -448,6 +459,7 @@ export function resolveView(document: OrgDocument, options: ResolveOptions): Res
   const state: MutableResolution = {
     ...initial,
     relationships: globalRelationships(document),
+    relationshipTombstones: new Map(),
     semanticAnnotations: [],
     presentation: {
       ...(document.presentation ?? {}),

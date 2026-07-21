@@ -388,6 +388,80 @@ describe('patch selection', () => {
     ]);
   });
 
+  it('treats selected remove-parent as annotated no-op when the node is absent', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'remove-node',
+        label: 'Remove node',
+        patches: [{ type: 'remove-node', node: 'usaid' }],
+      },
+      {
+        id: 'remove-parent',
+        label: 'Remove absent parent',
+        patches: [
+          {
+            type: 'remove-parent',
+            node: 'usaid',
+            semantic: 'already parentless',
+          },
+        ],
+      },
+    ];
+
+    const result = resolveView(document, {
+      viewId: 'proposal-a',
+      selectedGroups: ['remove-node', 'remove-parent'],
+    });
+
+    expect(result.nodes.has('usaid')).toBe(false);
+    expect(result.semanticAnnotations).toContainEqual({
+      semantic: 'already parentless',
+      nodes: ['usaid'],
+      note: undefined,
+      sources: undefined,
+    });
+  });
+
+  it('preserves relationship participants for repeated removal annotations', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'remove-first',
+        label: 'Remove relationship',
+        patches: [
+          {
+            type: 'remove-relationship',
+            relationship: 'shared-leadership',
+            semantic: 'first removal',
+          },
+        ],
+      },
+      {
+        id: 'remove-again',
+        label: 'Confirm relationship removal',
+        patches: [
+          {
+            type: 'remove-relationship',
+            relationship: 'shared-leadership',
+            semantic: 'second removal',
+          },
+        ],
+      },
+    ];
+
+    const result = resolveView(document, {
+      viewId: 'proposal-a',
+      selectedGroups: ['remove-first', 'remove-again'],
+    });
+
+    expect(result.relationships.has('shared-leadership')).toBe(false);
+    expect(result.semanticAnnotations).toMatchObject([
+      { semantic: 'first removal', nodes: ['state', 'usaid'] },
+      { semantic: 'second removal', nodes: ['state', 'usaid'] },
+    ]);
+  });
+
   it('rejects incomplete manual resolver selections and accepts valid selections', () => {
     const document = cloneValidDocument();
     document.proposals[0]!.patchGroups = [
