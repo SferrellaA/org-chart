@@ -52,73 +52,80 @@ function ordered(index: GroupIndex, selected: ReadonlySet<string>): string[] {
   return index.groups.filter((group) => selected.has(group.id)).map((group) => group.id);
 }
 
-function sameValue(first: unknown, second: unknown): boolean {
-  if (Object.is(first, second)) return true;
-  if (typeof first !== typeof second || first === null || second === null) return false;
-  if (Array.isArray(first) || Array.isArray(second)) {
-    return (
-      Array.isArray(first) &&
-      Array.isArray(second) &&
-      first.length === second.length &&
-      first.every((value, index) => sameValue(value, second[index]))
-    );
-  }
-  if (typeof first !== 'object') return false;
-  const firstRecord = first as Record<string, unknown>;
-  const secondRecord = second as Record<string, unknown>;
-  const firstKeys = Object.keys(firstRecord).sort();
-  const secondKeys = Object.keys(secondRecord).sort();
-  return (
-    firstKeys.length === secondKeys.length &&
-    firstKeys.every(
-      (key, keyIndex) =>
-        key === secondKeys[keyIndex] && sameValue(firstRecord[key], secondRecord[key]),
-    )
-  );
+export interface ConcreteWrite {
+  target: string;
+  value: unknown;
+  fingerprint: string;
 }
 
-function patchWrites(patch: Patch): readonly (readonly [string, unknown])[] {
+function normalizedFingerprint(value: unknown): string {
+  if (value === undefined) return 'undefined';
+  if (value === null) return 'null';
+  if (typeof value === 'string') return `string:${JSON.stringify(value)}`;
+  if (typeof value === 'number') return `number:${String(value)}`;
+  if (typeof value === 'boolean') return `boolean:${String(value)}`;
+  if (Array.isArray(value)) {
+    return `array:[${value.map(normalizedFingerprint).join(',')}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .sort(([first], [second]) => first.localeCompare(second))
+    .map(([key, entry]) => `${JSON.stringify(key)}:${normalizedFingerprint(entry)}`);
+  return `object:{${entries.join(',')}}`;
+}
+
+function concreteWrite(target: string, value: unknown): ConcreteWrite {
+  return { target, value, fingerprint: normalizedFingerprint(value) };
+}
+
+export function concretePatchWrites(patch: Patch): readonly ConcreteWrite[] {
   switch (patch.type) {
     case 'add-node':
       return [
-        [`${patch.node}.existence`, true],
-        ...Object.entries(patch.value ?? {}).map(([key, value]) => [
-          `${patch.node}.${key}`,
-          value,
-        ] as const),
+        concreteWrite(`${patch.node}.existence`, true),
+        ...Object.entries(patch.value ?? {}).map(([key, value]) =>
+          concreteWrite(`${patch.node}.${key}`, value),
+        ),
       ];
     case 'remove-node':
-      return [[`${patch.node}.existence`, false]];
+      return [concreteWrite(`${patch.node}.existence`, false)];
     case 'set-node':
-      return Object.entries(patch.value).map(([key, value]) => [`${patch.node}.${key}`, value]);
+      return Object.entries(patch.value).map(([key, value]) =>
+        concreteWrite(`${patch.node}.${key}`, value),
+      );
     case 'set-parent':
-      return [[`${patch.node}.parent`, { parent: patch.parent, relationship: patch.relationship }]];
+      return [
+        concreteWrite(`${patch.node}.parent`, {
+          parent: patch.parent,
+          relationship: patch.relationship,
+          note: patch.note,
+          sources: patch.sources?.map((source) => ({ label: source.label, url: source.url })),
+        }),
+      ];
     case 'remove-parent':
-      return [[`${patch.node}.parent`, null]];
+      return [concreteWrite(`${patch.node}.parent`, null)];
     case 'add-relationship':
       return [
-        [`${patch.relationship.id}.existence`, true],
+        concreteWrite(`${patch.relationship.id}.existence`, true),
         ...Object.entries(patch.relationship)
           .filter(([key]) => key !== 'id')
-          .map(([key, value]) => [`${patch.relationship.id}.${key}`, value] as const),
+          .map(([key, value]) => concreteWrite(`${patch.relationship.id}.${key}`, value)),
       ];
     case 'remove-relationship':
-      return [[`${patch.relationship}.existence`, false]];
+      return [concreteWrite(`${patch.relationship}.existence`, false)];
     case 'set-relationship':
-      return Object.entries(patch.value).map(([key, value]) => [
-        `${patch.relationship}.${key}`,
-        value,
-      ]);
+      return Object.entries(patch.value).map(([key, value]) =>
+        concreteWrite(`${patch.relationship}.${key}`, value),
+      );
     default:
       return [];
   }
 }
 
-function effectiveWrites(group: PatchGroup): ReadonlyMap<string, unknown> {
-  const writes = new Map<string, unknown>();
+function effectiveWrites(group: PatchGroup): ReadonlyMap<string, ConcreteWrite> {
+  const writes = new Map<string, ConcreteWrite>();
   if (!Array.isArray(group.patches)) return writes;
   for (const patch of group.patches) {
-    for (const [target, value] of patchWrites(patch)) writes.set(target, value);
+    for (const write of concretePatchWrites(patch)) writes.set(write.target, write);
   }
   return writes;
 }
@@ -128,7 +135,7 @@ function selectedConflicts(index: GroupIndex, selected: ReadonlySet<string>): Gr
   const selectedGroups = index.groups.filter((group) => selected.has(group.id));
   const positions = new Map(index.groups.map((group, position) => [group.id, position]));
   const declaredPairs = new Set<string>();
-  const writes = new Map<string, { group: string; value: unknown }>();
+  const writes = new Map<string, { group: string; fingerprint: string }>();
 
   for (const group of selectedGroups) {
     for (const other of group.conflictsWith ?? []) {
@@ -144,16 +151,16 @@ function selectedConflicts(index: GroupIndex, selected: ReadonlySet<string>): Gr
         message: `Patch groups "${first}" and "${second}" conflict`,
       });
     }
-    for (const [target, value] of effectiveWrites(group)) {
+    for (const [target, write] of effectiveWrites(group)) {
       const previous = writes.get(target);
-      if (previous && !sameValue(previous.value, value)) {
+      if (previous && previous.fingerprint !== write.fingerprint) {
         conflicts.push({
           first: previous.group,
           second: group.id,
           message: `Patch groups "${previous.group}" and "${group.id}" both set ${target} differently`,
         });
       }
-      writes.set(target, { group: group.id, value });
+      writes.set(target, { group: group.id, fingerprint: write.fingerprint });
     }
   }
   return conflicts;
@@ -223,12 +230,12 @@ function disabledGroups(proposal: Proposal, index: GroupIndex): Map<string, stri
   const locked = lockedClosure(index);
   if (locked.size === 0) return disabled;
   const lockedDeclaredConflicts = new Map<string, string>();
-  const lockedWrites = new Map<string, { group: string; value: unknown }>();
+  const lockedWrites = new Map<string, { group: string; fingerprint: string }>();
   for (const group of index.groups) {
     if (!locked.has(group.id)) continue;
     for (const other of group.conflictsWith ?? []) lockedDeclaredConflicts.set(other, group.id);
-    for (const [target, value] of effectiveWrites(group)) {
-      lockedWrites.set(target, { group: group.id, value });
+    for (const [target, write] of effectiveWrites(group)) {
+      lockedWrites.set(target, { group: group.id, fingerprint: write.fingerprint });
     }
   }
   for (const group of index.groups) {
@@ -240,9 +247,9 @@ function disabledGroups(proposal: Proposal, index: GroupIndex): Map<string, stri
       disabled.set(group.id, `Patch group "${group.id}" conflicts with locked group "${lockedGroup}"`);
       continue;
     }
-    for (const [target, value] of effectiveWrites(group)) {
+    for (const [target, write] of effectiveWrites(group)) {
       const previous = lockedWrites.get(target);
-      if (previous && !sameValue(previous.value, value)) {
+      if (previous && previous.fingerprint !== write.fingerprint) {
         disabled.set(
           group.id,
           `Patch groups "${previous.group}" and "${group.id}" both set ${target} differently`,
@@ -278,12 +285,15 @@ function resultFor(
 
 export function initialPatchSelection(proposal: Proposal): PatchSelection {
   const index = indexGroups(proposal);
-  const selected = dependencyClosure(
-    index,
-    index.groups
-      .filter((group) => group.locked || group.defaultSelected)
-      .map((group) => group.id),
-  );
+  const selected = lockedClosure(index);
+  const disabled = disabledGroups(proposal, index);
+  for (const group of index.groups) {
+    if (!group.defaultSelected || selected.has(group.id) || disabled.has(group.id)) continue;
+    const candidate = dependencyClosure(index, [group.id]);
+    selected.forEach((id) => candidate.add(id));
+    if (validateSelection(proposal, ordered(index, candidate))) continue;
+    candidate.forEach((id) => selected.add(id));
+  }
   return resultFor(proposal, index, selected, validateSelection(proposal, ordered(index, selected)));
 }
 

@@ -12,7 +12,7 @@ import type {
   SnapshotState,
   Source,
 } from './types';
-import { validateSelection } from './selection';
+import { concretePatchWrites, validateSelection } from './selection';
 
 export interface ResolveOptions {
   viewId: string;
@@ -281,6 +281,36 @@ function applyPatchList(
   validateHierarchy(state.nodes, state.parents, finalPath);
 }
 
+function applySelectedPatchGroup(
+  document: OrgDocument,
+  state: MutableResolution,
+  patches: readonly Patch[],
+  path: string,
+  previousGroupWrites: Map<string, string>,
+): void {
+  const groupWrites = new Map<string, string>();
+  let finalPath = path;
+  patches.forEach((patch, index) => {
+    const patchPath = `${path}/${index}`;
+    finalPath = patchPath;
+    let writes: ReturnType<typeof concretePatchWrites> = [];
+    if (isObject(patch)) {
+      try {
+        writes = concretePatchWrites(patch);
+      } catch {
+        // applyPatch retains the contextual runtime error for malformed patch values.
+      }
+    }
+    const duplicate =
+      writes.length > 0 &&
+      writes.every((write) => previousGroupWrites.get(write.target) === write.fingerprint);
+    if (!duplicate) applyPatch(document, state, patch, patchPath);
+    for (const write of writes) groupWrites.set(write.target, write.fingerprint);
+  });
+  validateHierarchy(state.nodes, state.parents, finalPath);
+  groupWrites.forEach((fingerprint, target) => previousGroupWrites.set(target, fingerprint));
+}
+
 function globalRelationships(document: OrgDocument): Map<string, Relationship> {
   return new Map(
     (document.relationships ?? []).map((relationship) => [
@@ -329,11 +359,12 @@ function applyProposal(
     proposal.patches === undefined ? [] : proposal.patches,
     `${proposalPath}/patches`,
   );
+  const previousGroupWrites = new Map<string, string>();
   for (const [groupIndex, group] of (proposal.patchGroups ?? []).entries()) {
     const groupPath = `${proposalPath}/patchGroups/${groupIndex}/patches`;
     if (!Array.isArray(group.patches)) fail(groupPath, 'patches must be an array');
     if (!selected.has(group.id)) continue;
-    applyPatchList(document, state, group.patches, groupPath);
+    applySelectedPatchGroup(document, state, group.patches, groupPath, previousGroupWrites);
   }
 }
 

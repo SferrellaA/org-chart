@@ -42,6 +42,33 @@ describe('patch selection', () => {
     ]);
   });
 
+  it('excludes and disables a default that conflicts with the locked closure', () => {
+    const input = proposal([
+      group('alternative', { defaultSelected: true, conflictsWith: ['foundation'] }),
+      group('foundation'),
+      group('locked', { locked: true, requires: ['foundation'] }),
+    ]);
+
+    const result = initialPatchSelection(input);
+
+    expect(result.selected).toEqual(['foundation', 'locked']);
+    expect(result.disabled.get('alternative')).toMatch(/locked|foundation/i);
+    expect(result.error).toBeUndefined();
+  });
+
+  it('keeps the first compatible default in document order', () => {
+    const input = proposal([
+      group('first', { defaultSelected: true, conflictsWith: ['second'] }),
+      group('second', { defaultSelected: true, conflictsWith: ['first'] }),
+      group('third', { defaultSelected: true }),
+    ]);
+
+    const result = initialPatchSelection(input);
+
+    expect(result.selected).toEqual(['first', 'third']);
+    expect(result.error).toBeUndefined();
+  });
+
   it('checking a group deselects conflicting optional groups', () => {
     const input = proposal([
       group('old', { defaultSelected: true, conflictsWith: ['new'] }),
@@ -135,6 +162,73 @@ describe('patch selection', () => {
     );
   });
 
+  it.each([
+    ['note', { note: 'First' }, { note: 'Second' }],
+    [
+      'source',
+      { sources: [{ label: 'Source', url: 'https://example.com/one' }] },
+      { sources: [{ label: 'Source', url: 'https://example.com/two' }] },
+    ],
+  ] as const)('detects differing parent %s metadata', (_name, first, second) => {
+    const input = proposal([
+      group('a', {
+        patches: [
+          {
+            type: 'set-parent',
+            node: 'state-hr',
+            parent: 'state',
+            relationship: 'internal',
+            ...first,
+          },
+        ],
+      }),
+      group('b', {
+        patches: [
+          {
+            type: 'set-parent',
+            node: 'state-hr',
+            parent: 'state',
+            relationship: 'internal',
+            ...second,
+          },
+        ],
+      }),
+    ]);
+
+    expect(validateSelection(input, ['a', 'b'])).toBe(
+      'Patch groups "a" and "b" both set state-hr.parent differently',
+    );
+  });
+
+  it('allows equal parent metadata with deeply equal normalized sources', () => {
+    const input = proposal([
+      group('a', {
+        patches: [
+          {
+            type: 'set-parent',
+            node: 'state-hr',
+            parent: 'state',
+            relationship: 'internal',
+            sources: [{ label: 'Source', url: 'https://example.com/source' }],
+          },
+        ],
+      }),
+      group('b', {
+        patches: [
+          {
+            type: 'set-parent',
+            node: 'state-hr',
+            parent: 'state',
+            relationship: 'internal',
+            sources: [{ url: 'https://example.com/source', label: 'Source' }],
+          },
+        ],
+      }),
+    ]);
+
+    expect(validateSelection(input, ['a', 'b'])).toBeUndefined();
+  });
+
   it('handles transitive requirements and conflicts without recursion overflow', () => {
     const count = 15_000;
     const groups = Array.from({ length: count }, (_, index) =>
@@ -173,6 +267,53 @@ describe('patch selection', () => {
         ['a', 'b'],
       ),
     ).toMatch(/cycle/i);
+  });
+
+  it('resolves duplicate equal remove-node patches idempotently', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'remove-first',
+        label: 'Remove first',
+        patches: [{ type: 'remove-node', node: 'usaid' }],
+      },
+      {
+        id: 'remove-again',
+        label: 'Remove again',
+        patches: [{ type: 'remove-node', node: 'usaid' }],
+      },
+    ];
+
+    const result = resolveView(document, {
+      viewId: 'proposal-a',
+      selectedGroups: ['remove-first', 'remove-again'],
+    });
+
+    expect(result.nodes.has('usaid')).toBe(false);
+  });
+
+  it('resolves duplicate equal add-node patches idempotently', () => {
+    const document = cloneValidDocument();
+    document.nodes.new = { name: 'New node' };
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'add-first',
+        label: 'Add first',
+        patches: [{ type: 'add-node', node: 'new', value: { note: 'Added' } }],
+      },
+      {
+        id: 'add-again',
+        label: 'Add again',
+        patches: [{ type: 'add-node', node: 'new', value: { note: 'Added' } }],
+      },
+    ];
+
+    const result = resolveView(document, {
+      viewId: 'proposal-a',
+      selectedGroups: ['add-first', 'add-again'],
+    });
+
+    expect(result.nodes.get('new')).toMatchObject({ name: 'New node', note: 'Added' });
   });
 
   it('rejects incomplete manual resolver selections and accepts valid selections', () => {
