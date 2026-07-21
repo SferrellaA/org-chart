@@ -161,6 +161,7 @@ describe('resolveView', () => {
     delete document.proposals[0]!.patchGroups;
     document.proposals[0]!.patches = [
       { type: 'set-parent', node: 'state', parent: 'state-hr', relationship: 'internal' },
+      { type: 'set-node', node: 'usaid', value: { name: 'Unrelated rename' } },
     ];
 
     expect(() =>
@@ -199,6 +200,29 @@ describe('resolveView', () => {
         sources: undefined,
       },
     ]);
+  });
+
+  it('preserves relationship map key and stable ID when setting a relationship', () => {
+    const document = cloneValidDocument();
+    delete document.proposals[0]!.patchGroups;
+    document.proposals[0]!.patches = [
+      {
+        type: 'set-relationship',
+        relationship: 'shared-leadership',
+        value: {
+          id: 'replacement-id',
+          label: 'Updated leadership',
+        } as { label: string },
+      },
+    ];
+
+    const result = resolveView(document, { viewId: 'proposal-a', selectedGroups: [] });
+
+    expect(result.relationships.has('replacement-id')).toBe(false);
+    expect(result.relationships.get('shared-leadership')).toMatchObject({
+      id: 'shared-leadership',
+      label: 'Updated leadership',
+    });
   });
 
   it('applies exact selected groups plus locked groups in document order', () => {
@@ -267,5 +291,27 @@ describe('resolveView', () => {
         selectedGroups: ['shared-leadership-group'],
       }),
     ).toThrowError('current/patchGroups: group "shared-leadership-group" does not exist');
+  });
+
+  it('reports unsupported runtime patches with their exact group patch path', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'unknown-patch-group',
+        label: 'Unknown patch',
+        patches: [{ type: 'unknown-patch' } as never],
+      },
+    ];
+
+    expect(() =>
+      resolveView(document, {
+        viewId: 'proposal-a',
+        selectedGroups: ['unknown-patch-group'],
+      }),
+    ).toThrowError(
+      new ResolutionError(
+        'proposal-a/patchGroups/0/patches/0: unsupported patch type "unknown-patch"',
+      ),
+    );
   });
 });

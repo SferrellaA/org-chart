@@ -202,7 +202,8 @@ function applyPatch(
     }
     default: {
       const exhaustive: never = patch;
-      throw new ResolutionError(`unsupported patch: ${String(exhaustive)}`);
+      const runtimeType = (exhaustive as { type?: unknown }).type;
+      fail(path, `unsupported patch type "${String(runtimeType)}"`);
     }
   }
   addAnnotation(state.semanticAnnotations, patch, annotationRelationship);
@@ -214,12 +215,11 @@ function applyPatchList(
   patches: readonly Patch[],
   path: string,
 ): void {
-  let finalPath = path;
   patches.forEach((patch, index) => {
-    finalPath = `${path}/${index}`;
-    applyPatch(document, state, patch, finalPath);
+    const patchPath = `${path}/${index}`;
+    applyPatch(document, state, patch, patchPath);
+    validateHierarchy(state.nodes, state.parents, patchPath);
   });
-  validateHierarchy(state.nodes, state.parents, finalPath);
 }
 
 function globalRelationships(document: OrgDocument): Map<string, Relationship> {
