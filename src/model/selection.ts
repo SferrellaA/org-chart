@@ -403,10 +403,7 @@ export function initialPatchSelection(proposal: Proposal): PatchSelection {
     const closure = dependencyClosure(index, [group.id]);
     const candidate = new Set([...closure].filter((id) => !selected.has(id)));
     const conflict = closureConflict(index, candidate, selected, acceptedWrites);
-    if (conflict) {
-      disabled.set(group.id, conflict.message);
-      continue;
-    }
+    if (conflict) continue;
     candidate.forEach((id) => selected.add(id));
     recordWrites(index, candidate, acceptedWrites);
   }

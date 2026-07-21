@@ -79,8 +79,24 @@ describe('patch selection', () => {
     const result = initialPatchSelection(input);
 
     expect(result.selected).toEqual(['first', 'support']);
-    expect(result.disabled.get('second')).toBe('Patch groups "second" and "support" conflict');
+    expect(result.disabled.has('second')).toBe(false);
     expect(result.error).toBeUndefined();
+  });
+
+  it('lets a user replace the earlier of two conflicting optional defaults', () => {
+    const input = proposal([
+      group('first', { defaultSelected: true, conflictsWith: ['second'] }),
+      group('second', { defaultSelected: true, conflictsWith: ['first'] }),
+    ]);
+    const initial = initialPatchSelection(input);
+
+    expect(initial.selected).toEqual(['first']);
+    expect(initial.disabled.has('second')).toBe(false);
+
+    const toggled = togglePatchGroup(input, initial, 'second', true);
+
+    expect(toggled.selected).toEqual(['second']);
+    expect(toggled.error).toBeUndefined();
   });
 
   it('initializes 4,000 independent defaults without quadratic growth', () => {
