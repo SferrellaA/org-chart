@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { validateDocument } from '../src/model/validate';
-import type { Proposal } from '../src/model/types';
+import type { OrgDocument, Proposal } from '../src/model/types';
 import { cloneValidDocument, validDocument, type DeepMutable } from './fixtures';
 
 describe('validateDocument', () => {
@@ -134,7 +134,7 @@ describe('validateDocument', () => {
     if (result.ok) expect(result.viewErrors.size).toBe(0);
   });
 
-  it('carries relationship state through patch groups in document order', () => {
+  it('does not let an unselected prior group supply a relationship ID', () => {
     const document = cloneValidDocument();
     document.proposals[0]!.patchGroups = [
       {
@@ -170,7 +170,149 @@ describe('validateDocument', () => {
     const result = validateDocument(document);
 
     expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.viewErrors.get('proposal-a')?.join('\n')).toMatch(
+        /patchGroups\/1.*unknown relationship "group-relationship"/i,
+      );
+    }
+  });
+
+  it('lets a declared group requirement supply a relationship ID', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'relationship-addition',
+        label: 'Add relationship',
+        patches: [
+          {
+            type: 'add-relationship',
+            relationship: {
+              id: 'group-relationship',
+              type: 'coordination',
+              source: 'state',
+              target: 'usaid',
+              label: 'Coordinates with',
+            },
+          },
+        ],
+      },
+      {
+        id: 'relationship-update',
+        label: 'Update relationship',
+        requires: ['relationship-addition'],
+        patches: [
+          {
+            type: 'set-relationship',
+            relationship: 'group-relationship',
+            value: { label: 'Works with' },
+          },
+        ],
+      },
+    ];
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.viewErrors.size).toBe(0);
+  });
+
+  it('inherits relationships from locked groups in a base proposal', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'locked-relationship',
+        label: 'Guaranteed relationship',
+        locked: true,
+        patches: [
+          {
+            type: 'add-relationship',
+            relationship: {
+              id: 'locked-base-relationship',
+              type: 'coordination',
+              source: 'state',
+              target: 'usaid',
+              label: 'Coordinates with',
+            },
+          },
+        ],
+      },
+    ];
+    document.proposals.push({
+      id: 'proposal-b',
+      label: 'Descendant proposal',
+      base: 'proposal-a',
+      patches: [
+        {
+          type: 'set-relationship',
+          relationship: 'locked-base-relationship',
+          value: { label: 'Works with' },
+        },
+      ],
+    });
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.viewErrors.size).toBe(0);
+  });
+
+  it('does not reapply a locked group required by an optional group', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'locked-relationship',
+        label: 'Guaranteed relationship',
+        locked: true,
+        patches: [
+          {
+            type: 'add-relationship',
+            relationship: {
+              id: 'locked-relationship-id',
+              type: 'coordination',
+              source: 'state',
+              target: 'usaid',
+              label: 'Coordinates with',
+            },
+          },
+        ],
+      },
+      {
+        id: 'optional-update',
+        label: 'Optional update',
+        requires: ['locked-relationship'],
+        patches: [
+          {
+            type: 'set-relationship',
+            relationship: 'locked-relationship-id',
+            value: { label: 'Works with' },
+          },
+        ],
+      },
+    ];
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.viewErrors.size).toBe(0);
+  });
+
+  it('validates a 15,000-group dependency chain without overflowing', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = Array.from(
+      { length: 15_000 },
+      (_, index) => ({
+        id: `group-${index}`,
+        label: `Group ${index}`,
+        patches: [],
+        ...(index === 14_999 ? {} : { requires: [`group-${index + 1}`] }),
+      }),
+    );
+
+    let result: ReturnType<typeof validateDocument> | undefined;
+    expect(() => {
+      result = validateDocument(document);
+    }).not.toThrow();
+    expect(result?.ok).toBe(true);
   });
 
   it('rejects empty relationship replacements', () => {
@@ -215,6 +357,38 @@ describe('validateDocument', () => {
     }
   });
 
+  it('reports duplicate relationship IDs introduced by separate optional groups', () => {
+    const document = cloneValidDocument();
+    const relationship = {
+      id: 'duplicate-group-relationship',
+      type: 'coordination',
+      source: 'state',
+      target: 'usaid',
+      label: 'Coordinates with',
+    };
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'first-addition',
+        label: 'First addition',
+        patches: [{ type: 'add-relationship', relationship }],
+      },
+      {
+        id: 'second-addition',
+        label: 'Second addition',
+        patches: [{ type: 'add-relationship', relationship }],
+      },
+    ];
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.viewErrors.get('proposal-a')?.join('\n')).toMatch(
+        /duplicate.*duplicate-group-relationship/i,
+      );
+    }
+  });
+
   it('makes an unknown snapshot hierarchy child fatal', () => {
     const document = cloneValidDocument();
     document.snapshots[0]!.hierarchy[0]!.child = 'missing';
@@ -223,6 +397,48 @@ describe('validateDocument', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.errors.join('\n')).toMatch(/current.*missing/i);
+  });
+
+  it.each([
+    ['global node map', (document: DeepMutable<OrgDocument>) => {
+      document.nodes[''] = { name: 'Empty ID' };
+    }],
+    ['snapshot node map', (document: DeepMutable<OrgDocument>) => {
+      document.snapshots[0]!.nodes[''] = {};
+    }],
+    ['proposal snapshot node map', (document: DeepMutable<OrgDocument>) => {
+      document.proposals[0]!.snapshot = { nodes: { '': {} }, hierarchy: [] };
+    }],
+  ])('rejects empty IDs in the %s', (_label, mutate) => {
+    const document = cloneValidDocument();
+    mutate(document);
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.join('\n')).toMatch(/fewer than 1[\s\S]*property name/i);
+    }
+  });
+
+  it('uses sorted escaped snapshot node keys in semantic error paths', () => {
+    const first = cloneValidDocument();
+    first.snapshots[0]!.nodes['z/key'] = {};
+    first.snapshots[0]!.nodes['a~key'] = {};
+    const second = cloneValidDocument();
+    second.snapshots[0]!.nodes['a~key'] = {};
+    second.snapshots[0]!.nodes['z/key'] = {};
+
+    const firstResult = validateDocument(first);
+    const secondResult = validateDocument(second);
+
+    expect(firstResult.ok).toBe(false);
+    expect(secondResult.ok).toBe(false);
+    if (!firstResult.ok && !secondResult.ok) {
+      expect(firstResult.errors).toEqual(secondResult.errors);
+      expect(firstResult.errors.join('\n')).toMatch(/nodes\/a~0key.*a~key/i);
+      expect(firstResult.errors.join('\n')).toMatch(/nodes\/z~1key.*z\/key/i);
+    }
   });
 
   it('keeps proposal base cycles confined to affected proposal views', () => {

@@ -24,6 +24,10 @@ function schemaError(error: ErrorObject): string {
   return `document${path}: ${error.message ?? error.keyword}`;
 }
 
+function escapeJsonPointer(value: string): string {
+  return value.replaceAll('~', '~0').replaceAll('/', '~1');
+}
+
 function hierarchyErrors(
   owner: string,
   state: SnapshotState,
@@ -33,9 +37,9 @@ function hierarchyErrors(
   const presentNodes = new Set(Object.keys(state.nodes));
   const parents = new Map<string, string>();
 
-  for (const [index, node] of Object.keys(state.nodes).entries()) {
+  for (const node of Object.keys(state.nodes).sort()) {
     if (!knownNodes.has(node)) {
-      errors.push(`${owner}/nodes/${index}: unknown node "${node}"`);
+      errors.push(`${owner}/nodes/${escapeJsonPointer(node)}: unknown node "${node}"`);
     }
   }
 
@@ -72,36 +76,6 @@ function hierarchyErrors(
   }
 
   return [...new Set(errors)];
-}
-
-function graphCycle(nodes: readonly string[], edges: (node: string) => readonly string[]): string[] | undefined {
-  const visiting = new Set<string>();
-  const visited = new Set<string>();
-  const stack: string[] = [];
-
-  const visit = (node: string): string[] | undefined => {
-    if (visiting.has(node)) {
-      const start = stack.indexOf(node);
-      return [...stack.slice(start), node];
-    }
-    if (visited.has(node)) return undefined;
-    visiting.add(node);
-    stack.push(node);
-    for (const target of edges(node)) {
-      const cycle = visit(target);
-      if (cycle) return cycle;
-    }
-    stack.pop();
-    visiting.delete(node);
-    visited.add(node);
-    return undefined;
-  };
-
-  for (const node of nodes) {
-    const cycle = visit(node);
-    if (cycle) return cycle;
-  }
-  return undefined;
 }
 
 function relationshipNodeErrors(
@@ -197,6 +171,28 @@ function proposalErrors(
   const groups = proposal.patchGroups ?? [];
   const groupIds = new Set(groups.map((group) => group.id));
   const groupById = new Map(groups.map((group) => [group.id, group]));
+  const declaredRelationships = new Map<string, string>();
+  const recordRelationshipDeclarations = (patches: readonly Patch[], path: string): void => {
+    patches.forEach((patch, patchIndex) => {
+      if (patch.type !== 'add-relationship') return;
+      const id = patch.relationship.id;
+      const previous = declaredRelationships.get(id);
+      if (knownRelationships.has(id) || previous) {
+        errors.push(
+          `${path}/${patchIndex}/relationship/id: duplicate introduced relationship ID "${id}"` +
+            (previous ? ` (already introduced by ${previous})` : ''),
+        );
+      } else {
+        declaredRelationships.set(id, `${path}/${patchIndex}`);
+      }
+    });
+  };
+  recordRelationshipDeclarations(proposal.patches ?? [], `${owner}/patches`);
+  groups.forEach((group, groupIndex) => {
+    recordRelationshipDeclarations(group.patches, `${owner}/patchGroups/${groupIndex}/patches`);
+  });
+  const dependentGroups = new Map<string, number[]>();
+  const remainingRequirements = groups.map(() => 0);
   for (const [groupIndex, group] of groups.entries()) {
     const groupPath = `${owner}/patchGroups/${groupIndex}`;
     for (const [kind, references] of [
@@ -206,6 +202,11 @@ function proposalErrors(
       references.forEach((reference, index) => {
         if (!groupIds.has(reference)) {
           errors.push(`${groupPath}/${kind}/${index}: missing group "${reference}"`);
+        } else if (kind === 'requires') {
+          remainingRequirements[groupIndex]! += 1;
+          const dependents = dependentGroups.get(reference) ?? [];
+          dependents.push(groupIndex);
+          dependentGroups.set(reference, dependents);
         }
       });
     }
@@ -219,27 +220,77 @@ function proposalErrors(
         errors.push(`${groupPath}/conflictsWith: conflict with "${conflict}" must be symmetric`);
       }
     }
-    group.patches.forEach((patch, patchIndex) => {
-      errors.push(
-        ...patchErrors(
-          `${groupPath}/patches/${patchIndex}`,
-          patch,
-          knownNodes,
-          proposalRelationships,
-          introducedRelationships,
-        ),
-      );
-    });
   }
 
-  const dependencyCycle = graphCycle(
-    [...groupIds],
-    (id) => (groupById.get(id)?.requires ?? []).filter((required) => groupIds.has(required)),
-  );
-  if (dependencyCycle) {
-    errors.push(`${owner}/patchGroups: dependency cycle ${dependencyCycle.join(' -> ')}`);
+  const readyGroups: number[] = [];
+  remainingRequirements.forEach((count, index) => {
+    if (count === 0) readyGroups.push(index);
+  });
+  const groupOrder: number[] = [];
+  for (let cursor = 0; cursor < readyGroups.length; cursor += 1) {
+    const groupIndex = readyGroups[cursor]!;
+    groupOrder.push(groupIndex);
+    for (const dependent of dependentGroups.get(groups[groupIndex]!.id) ?? []) {
+      remainingRequirements[dependent]! -= 1;
+      if (remainingRequirements[dependent] === 0) readyGroups.push(dependent);
+    }
   }
-  return { errors, relationships: proposalRelationships };
+  if (groupOrder.length !== groups.length) {
+    const cycleGroups = groups
+      .filter((_group, index) => remainingRequirements[index]! > 0)
+      .map((group) => group.id);
+    errors.push(`${owner}/patchGroups: dependency cycle involving ${cycleGroups.join(', ')}`);
+  }
+
+  const dependencyClosure = (initialIds: readonly string[]): Set<string> => {
+    const selected = new Set<string>();
+    const pending = [...initialIds];
+    while (pending.length > 0) {
+      const id = pending.pop()!;
+      if (selected.has(id) || !groupIds.has(id)) continue;
+      selected.add(id);
+      const required = groupById.get(id)?.requires ?? [];
+      for (let index = required.length - 1; index >= 0; index -= 1) {
+        pending.push(required[index]!);
+      }
+    }
+    return selected;
+  };
+  const applyGroups = (
+    selected: ReadonlySet<string>,
+    relationships: Set<string>,
+    introduced: Set<string>,
+  ): void => {
+    for (const groupIndex of groupOrder) {
+      const group = groups[groupIndex]!;
+      if (!selected.has(group.id)) continue;
+      group.patches.forEach((patch, patchIndex) => {
+        errors.push(
+          ...patchErrors(
+            `${owner}/patchGroups/${groupIndex}/patches/${patchIndex}`,
+            patch,
+            knownNodes,
+            relationships,
+            introduced,
+          ),
+        );
+      });
+    }
+  };
+
+  const guaranteedGroups = dependencyClosure(
+    groups.filter((group) => group.locked).map((group) => group.id),
+  );
+  applyGroups(guaranteedGroups, proposalRelationships, introducedRelationships);
+
+  for (const group of groups) {
+    if (guaranteedGroups.has(group.id) || group.patches.length === 0) continue;
+    const selected = dependencyClosure([group.id]);
+    guaranteedGroups.forEach((id) => selected.delete(id));
+    const groupRelationships = new Set(proposalRelationships);
+    applyGroups(selected, groupRelationships, new Set<string>());
+  }
+  return { errors: [...new Set(errors)], relationships: proposalRelationships };
 }
 
 export function validateDocument(input: unknown): ValidationResult {
