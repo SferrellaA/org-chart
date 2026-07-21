@@ -1,0 +1,348 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://org-delta-chart.dev/schema/org-delta-chart.schema.json",
+  "title": "Org Delta Chart document",
+  "type": "object",
+  "required": ["title", "nodes", "snapshots", "proposals"],
+  "additionalProperties": false,
+  "properties": {
+    "title": { "type": "string", "minLength": 1 },
+    "nodes": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/nodeDefinition" }
+    },
+    "snapshots": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/snapshot" }
+    },
+    "proposals": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/proposal" }
+    },
+    "relationships": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/relationship" }
+    },
+    "zones": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/zone" }
+    },
+    "presentation": { "$ref": "#/$defs/presentation" }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "required": ["label", "url"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "pattern": "^https?://" }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/source" }
+    },
+    "imageSymbol": {
+      "type": "object",
+      "required": ["type", "url", "alt"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "image" },
+        "url": { "type": "string", "pattern": "^https?://" },
+        "alt": { "type": "string" }
+      }
+    },
+    "textSymbol": {
+      "type": "object",
+      "required": ["type", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "text" },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "symbol": {
+      "oneOf": [
+        { "$ref": "#/$defs/imageSymbol" },
+        { "$ref": "#/$defs/textSymbol" }
+      ]
+    },
+    "nodeState": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" },
+        "sources": { "$ref": "#/$defs/sources" },
+        "metadata": { "type": "object" }
+      }
+    },
+    "nodeDefinition": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "symbol": { "$ref": "#/$defs/symbol" },
+        "note": { "type": "string" },
+        "sources": { "$ref": "#/$defs/sources" },
+        "metadata": { "type": "object" }
+      }
+    },
+    "hierarchyEdge": {
+      "type": "object",
+      "required": ["child", "parent", "relationship"],
+      "additionalProperties": false,
+      "properties": {
+        "child": { "type": "string", "minLength": 1 },
+        "parent": { "type": "string", "minLength": 1 },
+        "relationship": { "enum": ["internal", "subordinate"] }
+      }
+    },
+    "relationship": {
+      "type": "object",
+      "required": ["id", "type", "source", "target", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" },
+        "sources": { "$ref": "#/$defs/sources" }
+      }
+    },
+    "snapshotState": {
+      "type": "object",
+      "required": ["nodes", "hierarchy"],
+      "additionalProperties": false,
+      "properties": {
+        "nodes": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/nodeState" }
+        },
+        "hierarchy": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/hierarchyEdge" }
+        }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "required": ["id", "label", "nodes", "hierarchy"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "nodes": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/nodeState" }
+        },
+        "hierarchy": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/hierarchyEdge" }
+        }
+      }
+    },
+    "patchNote": { "type": "string" },
+    "patchSemantic": { "type": "string", "minLength": 1 },
+    "patchRelatedNodes": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1 },
+        "uniqueItems": true
+    },
+    "addNodePatch": {
+      "type": "object",
+      "required": ["op", "node", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "const": "add-node" },
+        "node": { "type": "string", "minLength": 1 },
+        "value": { "$ref": "#/$defs/nodeState" },
+        "note": { "$ref": "#/$defs/patchNote" },
+        "semantic": { "$ref": "#/$defs/patchSemantic" },
+        "relatedNodes": { "$ref": "#/$defs/patchRelatedNodes" }
+      }
+    },
+    "removeNodePatch": {
+      "type": "object",
+      "required": ["op", "node"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "const": "remove-node" },
+        "node": { "type": "string", "minLength": 1 },
+        "note": { "$ref": "#/$defs/patchNote" },
+        "semantic": { "$ref": "#/$defs/patchSemantic" },
+        "relatedNodes": { "$ref": "#/$defs/patchRelatedNodes" }
+      }
+    },
+    "setNodePatch": {
+      "type": "object",
+      "required": ["op", "node", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "const": "set-node" },
+        "node": { "type": "string", "minLength": 1 },
+        "value": { "$ref": "#/$defs/nodeState" },
+        "note": { "$ref": "#/$defs/patchNote" },
+        "semantic": { "$ref": "#/$defs/patchSemantic" },
+        "relatedNodes": { "$ref": "#/$defs/patchRelatedNodes" }
+      }
+    },
+    "setParentPatch": {
+      "type": "object",
+      "required": ["op", "child", "parent", "relationship"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "const": "set-parent" },
+        "child": { "type": "string", "minLength": 1 },
+        "parent": { "type": "string", "minLength": 1 },
+        "relationship": { "enum": ["internal", "subordinate"] },
+        "note": { "$ref": "#/$defs/patchNote" },
+        "semantic": { "$ref": "#/$defs/patchSemantic" },
+        "relatedNodes": { "$ref": "#/$defs/patchRelatedNodes" }
+      }
+    },
+    "removeParentPatch": {
+      "type": "object",
+      "required": ["op", "child"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "const": "remove-parent" },
+        "child": { "type": "string", "minLength": 1 },
+        "note": { "$ref": "#/$defs/patchNote" },
+        "semantic": { "$ref": "#/$defs/patchSemantic" },
+        "relatedNodes": { "$ref": "#/$defs/patchRelatedNodes" }
+      }
+    },
+    "addRelationshipPatch": {
+      "type": "object",
+      "required": ["op", "relationship"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "const": "add-relationship" },
+        "relationship": { "$ref": "#/$defs/relationship" },
+        "note": { "$ref": "#/$defs/patchNote" },
+        "semantic": { "$ref": "#/$defs/patchSemantic" },
+        "relatedNodes": { "$ref": "#/$defs/patchRelatedNodes" }
+      }
+    },
+    "removeRelationshipPatch": {
+      "type": "object",
+      "required": ["op", "relationship"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "const": "remove-relationship" },
+        "relationship": { "type": "string", "minLength": 1 },
+        "note": { "$ref": "#/$defs/patchNote" },
+        "semantic": { "$ref": "#/$defs/patchSemantic" },
+        "relatedNodes": { "$ref": "#/$defs/patchRelatedNodes" }
+      }
+    },
+    "setRelationshipPatch": {
+      "type": "object",
+      "required": ["op", "relationship", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "op": { "const": "set-relationship" },
+        "relationship": { "type": "string", "minLength": 1 },
+        "value": { "$ref": "#/$defs/relationship" },
+        "note": { "$ref": "#/$defs/patchNote" },
+        "semantic": { "$ref": "#/$defs/patchSemantic" },
+        "relatedNodes": { "$ref": "#/$defs/patchRelatedNodes" }
+      }
+    },
+    "patch": {
+      "oneOf": [
+        { "$ref": "#/$defs/addNodePatch" },
+        { "$ref": "#/$defs/removeNodePatch" },
+        { "$ref": "#/$defs/setNodePatch" },
+        { "$ref": "#/$defs/setParentPatch" },
+        { "$ref": "#/$defs/removeParentPatch" },
+        { "$ref": "#/$defs/addRelationshipPatch" },
+        { "$ref": "#/$defs/removeRelationshipPatch" },
+        { "$ref": "#/$defs/setRelationshipPatch" }
+      ]
+    },
+    "patchGroup": {
+      "type": "object",
+      "required": ["id", "label", "patches"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "patches": { "type": "array", "items": { "$ref": "#/$defs/patch" } },
+        "defaultSelected": { "type": "boolean" },
+        "locked": { "type": "boolean" },
+        "requires": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "conflictsWith": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "note": { "type": "string" },
+        "sources": { "$ref": "#/$defs/sources" }
+      }
+    },
+    "proposal": {
+      "type": "object",
+      "required": ["id", "label", "base"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "base": { "type": "string", "minLength": 1 },
+        "complete": { "$ref": "#/$defs/snapshotState" },
+        "patches": { "type": "array", "items": { "$ref": "#/$defs/patch" } },
+        "patchGroups": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/patchGroup" }
+        }
+      }
+    },
+    "zone": {
+      "type": "object",
+      "required": ["id", "label", "nodes"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "nodes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "note": { "type": "string" },
+        "sources": { "$ref": "#/$defs/sources" },
+        "style": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "fill": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "presentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "initialExpansionDepth": { "type": "integer", "minimum": 0 },
+        "focusNodes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

@@ -39,7 +39,7 @@ describe('published package', () => {
       );
       writeFileSync(
         join(consumerDirectory, 'index.ts'),
-        "import { OrgDeltaChartElement } from 'org-delta-chart';\n\nconst element: HTMLElement = new OrgDeltaChartElement();\n",
+        "import { OrgDeltaChartElement, validateOrgDocument, type OrgDocument } from 'org-delta-chart';\n\nconst element: HTMLElement = new OrgDeltaChartElement();\nconst document = {} as OrgDocument;\nvalidateOrgDocument(document);\n",
       );
       writeFileSync(
         join(consumerDirectory, 'tsconfig.json'),
@@ -60,8 +60,21 @@ describe('published package', () => {
           join(consumerDirectory, 'node_modules/org-delta-chart/package.json'),
           'utf8',
         ),
-      ) as { exports: { '.': { types?: string } } };
+      ) as { exports: { '.': { types?: string }; './schema'?: string } };
       expect(packageJson.exports['.'].types).toEqual(expect.any(String));
+      expect(packageJson.exports['./schema']).toBe('./dist/org-delta-chart.schema.json');
+      const publishedSchema = JSON.parse(
+        readFileSync(
+          join(
+            consumerDirectory,
+            'node_modules/org-delta-chart/dist/org-delta-chart.schema.json',
+          ),
+          'utf8',
+        ),
+      ) as { $schema?: string };
+      expect(publishedSchema.$schema).toBe(
+        'https://json-schema.org/draft/2020-12/schema',
+      );
 
       expect(() =>
         execFileSync(
