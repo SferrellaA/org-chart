@@ -1,4 +1,5 @@
 import type {
+  NodeDefinition,
   OrgDocument,
   Patch,
   PresentationDefaults,
@@ -9,6 +10,7 @@ import type {
   ResolvedParent,
   SemanticAnnotation,
   SnapshotState,
+  Source,
 } from './types';
 
 export interface ResolveOptions {
@@ -35,6 +37,36 @@ function fail(path: string, message: string): never {
   throw new ResolutionError(path ? `${path}: ${message}` : message);
 }
 
+function escapePathSegment(value: string): string {
+  return value.replaceAll('~', '~0').replaceAll('/', '~1');
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function cloneSources(sources: readonly Source[]): Source[];
+function cloneSources(sources: undefined): undefined;
+function cloneSources(sources: readonly Source[] | undefined): Source[] | undefined;
+function cloneSources(sources: readonly Source[] | undefined): Source[] | undefined {
+  return sources?.map((source) => ({ ...source }));
+}
+
+function cloneNode(id: string, node: NodeDefinition | ResolvedNode): ResolvedNode {
+  const cloned: ResolvedNode = { ...node, id };
+  if (node.aliases) cloned.aliases = [...node.aliases];
+  if (node.symbol) cloned.symbol = { ...node.symbol };
+  if (node.metadata) cloned.metadata = { ...node.metadata };
+  if (node.sources) cloned.sources = cloneSources(node.sources);
+  return cloned;
+}
+
+function cloneRelationship(relationship: Relationship): Relationship {
+  const cloned: Relationship = { ...relationship };
+  if (relationship.sources) cloned.sources = cloneSources(relationship.sources);
+  return cloned;
+}
+
 function resolveSnapshot(
   document: OrgDocument,
   snapshot: SnapshotState,
@@ -44,7 +76,7 @@ function resolveSnapshot(
   for (const [id, state] of Object.entries(snapshot.nodes)) {
     const definition = document.nodes[id];
     if (!definition) fail(path, `node "${id}" does not have a definition`);
-    nodes.set(id, { ...definition, ...state, id });
+    nodes.set(id, cloneNode(id, { ...definition, ...state }));
   }
 
   const parents = new Map<string, ResolvedParent>();
@@ -56,7 +88,7 @@ function resolveSnapshot(
       parent: edge.parent,
       relationship: edge.relationship,
       note: edge.note,
-      sources: edge.sources,
+      sources: cloneSources(edge.sources),
     } as ResolvedParent);
   }
   validateHierarchy(nodes, parents, path);
@@ -110,7 +142,7 @@ function addAnnotation(
     semantic: patch.semantic,
     nodes: annotationNodes(patch, relationship),
     note: patch.note,
-    sources: patch.sources,
+    sources: cloneSources(patch.sources),
   } as SemanticAnnotation);
 }
 
@@ -130,19 +162,35 @@ function requireRelationship(
   return relationship;
 }
 
+function validateParentChange(
+  state: MutableResolution,
+  node: string,
+  parent: string,
+  path: string,
+): void {
+  const seen = new Set<string>();
+  let ancestor: string | undefined = parent;
+  while (ancestor !== undefined) {
+    if (ancestor === node || seen.has(ancestor)) fail(path, 'hierarchy contains a cycle');
+    seen.add(ancestor);
+    ancestor = state.parents.get(ancestor)?.parent;
+  }
+}
+
 function applyPatch(
   document: OrgDocument,
   state: MutableResolution,
   patch: Patch,
   path: string,
 ): void {
+  if (!isObject(patch)) fail(path, 'patch must be an object');
   let annotationRelationship: Relationship | undefined;
   switch (patch.type) {
     case 'add-node': {
       if (state.nodes.has(patch.node)) fail(path, `node "${patch.node}" already exists`);
       const definition = document.nodes[patch.node];
       if (!definition) fail(path, `node "${patch.node}" does not have a definition`);
-      state.nodes.set(patch.node, { ...definition, ...patch.value, id: patch.node });
+      state.nodes.set(patch.node, cloneNode(patch.node, { ...definition, ...patch.value }));
       break;
     }
     case 'remove-node': {
@@ -161,17 +209,18 @@ function applyPatch(
     }
     case 'set-node': {
       const node = requireNode(state, patch.node, path);
-      state.nodes.set(patch.node, { ...node, ...patch.value, id: patch.node });
+      state.nodes.set(patch.node, cloneNode(patch.node, { ...node, ...patch.value }));
       break;
     }
     case 'set-parent': {
       requireNode(state, patch.node, path);
       requireNode(state, patch.parent, path);
+      validateParentChange(state, patch.node, patch.parent, path);
       state.parents.set(patch.node, {
         parent: patch.parent,
         relationship: patch.relationship,
         note: patch.note,
-        sources: patch.sources,
+        sources: cloneSources(patch.sources),
       } as ResolvedParent);
       break;
     }
@@ -180,12 +229,13 @@ function applyPatch(
       state.parents.delete(patch.node);
       break;
     case 'add-relationship':
+      if (!isObject(patch.relationship)) fail(path, 'relationship must be an object');
       if (state.relationships.has(patch.relationship.id)) {
         fail(path, `relationship "${patch.relationship.id}" already exists`);
       }
       requireNode(state, patch.relationship.source, path);
       requireNode(state, patch.relationship.target, path);
-      annotationRelationship = { ...patch.relationship };
+      annotationRelationship = cloneRelationship(patch.relationship);
       state.relationships.set(patch.relationship.id, annotationRelationship);
       break;
     case 'remove-relationship':
@@ -194,9 +244,14 @@ function applyPatch(
       break;
     case 'set-relationship': {
       const relationship = requireRelationship(state, patch.relationship, path);
+      if (!isObject(patch.value)) fail(path, 'relationship value must be an object');
       if (patch.value.source) requireNode(state, patch.value.source, path);
       if (patch.value.target) requireNode(state, patch.value.target, path);
-      annotationRelationship = { ...relationship, ...patch.value, id: relationship.id };
+      annotationRelationship = cloneRelationship({
+        ...relationship,
+        ...patch.value,
+        id: relationship.id,
+      });
       state.relationships.set(patch.relationship, annotationRelationship);
       break;
     }
@@ -215,15 +270,22 @@ function applyPatchList(
   patches: readonly Patch[],
   path: string,
 ): void {
+  let finalPath = path;
   patches.forEach((patch, index) => {
     const patchPath = `${path}/${index}`;
+    finalPath = patchPath;
     applyPatch(document, state, patch, patchPath);
-    validateHierarchy(state.nodes, state.parents, patchPath);
   });
+  validateHierarchy(state.nodes, state.parents, finalPath);
 }
 
 function globalRelationships(document: OrgDocument): Map<string, Relationship> {
-  return new Map((document.relationships ?? []).map((relationship) => [relationship.id, { ...relationship }]));
+  return new Map(
+    (document.relationships ?? []).map((relationship) => [
+      relationship.id,
+      cloneRelationship(relationship),
+    ]),
+  );
 }
 
 function proposalChain(document: OrgDocument, proposal: Proposal): { root: SnapshotState; chain: Proposal[] } {
@@ -234,13 +296,14 @@ function proposalChain(document: OrgDocument, proposal: Proposal): { root: Snaps
   let current: Proposal | undefined = proposal;
 
   while (current) {
-    if (seen.has(current.id)) fail(`${current.id}/base`, 'proposal base chain contains a cycle');
+    const currentPath = escapePathSegment(current.id);
+    if (seen.has(current.id)) fail(`${currentPath}/base`, 'proposal base chain contains a cycle');
     seen.add(current.id);
     reversed.push(current);
     const snapshot = snapshots.get(current.base);
     if (snapshot) return { root: snapshot, chain: reversed.reverse() };
     const base = proposals.get(current.base);
-    if (!base) fail(`${current.id}/base`, `view "${current.base}" does not exist`);
+    if (!base) fail(`${currentPath}/base`, `view "${current.base}" does not exist`);
     current = base;
   }
   throw new ResolutionError('unreachable proposal chain');
@@ -252,19 +315,20 @@ function applyProposal(
   proposal: Proposal,
   selected: ReadonlySet<string>,
 ): void {
+  const proposalPath = escapePathSegment(proposal.id);
   if (proposal.snapshot) {
-    const replacement = resolveSnapshot(document, proposal.snapshot, `${proposal.id}/snapshot`);
+    const replacement = resolveSnapshot(document, proposal.snapshot, `${proposalPath}/snapshot`);
     state.nodes = replacement.nodes;
     state.parents = replacement.parents;
   }
-  applyPatchList(document, state, proposal.patches ?? [], `${proposal.id}/patches`);
+  applyPatchList(document, state, proposal.patches ?? [], `${proposalPath}/patches`);
   for (const [groupIndex, group] of (proposal.patchGroups ?? []).entries()) {
     if (!group.locked && !selected.has(group.id)) continue;
     applyPatchList(
       document,
       state,
       group.patches,
-      `${proposal.id}/patchGroups/${groupIndex}/patches`,
+      `${proposalPath}/patchGroups/${groupIndex}/patches`,
     );
   }
 }
@@ -289,16 +353,27 @@ export function resolveView(document: OrgDocument, options: ResolveOptions): Res
   );
   for (const id of selected) {
     if (!availableGroups.has(id)) {
-      fail(`${options.viewId}/patchGroups`, `group "${id}" does not exist`);
+      fail(`${escapePathSegment(options.viewId)}/patchGroups`, `group "${id}" does not exist`);
     }
   }
 
-  const initial = resolveSnapshot(document, root, snapshot ? snapshot.id : `${chain[0]!.id}/base`);
+  const initial = resolveSnapshot(
+    document,
+    root,
+    snapshot
+      ? escapePathSegment(snapshot.id)
+      : `${escapePathSegment(chain[0]!.id)}/base`,
+  );
   const state: MutableResolution = {
     ...initial,
     relationships: globalRelationships(document),
     semanticAnnotations: [],
-    presentation: { ...(document.presentation ?? {}) },
+    presentation: {
+      ...(document.presentation ?? {}),
+      ...(document.presentation?.focusNodes
+        ? { focusNodes: [...document.presentation.focusNodes] }
+        : {}),
+    },
   };
   for (const item of chain) applyProposal(document, state, item, selected);
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { ResolutionError, resolveView } from '../src/model/resolve';
-import type { Patch } from '../src/model/types';
+import type { OrgDocument, Patch } from '../src/model/types';
 import { cloneValidDocument } from './fixtures';
 
 describe('resolveView', () => {
@@ -169,6 +169,48 @@ describe('resolveView', () => {
     ).toThrowError('proposal-a/patches/0: hierarchy contains a cycle');
   });
 
+  it('resolves 5,000 node renames without rescanning the hierarchy per patch', () => {
+    const count = 5_000;
+    const nodes = Object.fromEntries(
+      Array.from({ length: count }, (_, index) => [`node-${index}`, { name: `Node ${index}` }]),
+    );
+    const document: OrgDocument = {
+      title: 'Large chart',
+      nodes,
+      snapshots: [
+        {
+          id: 'current',
+          label: 'Current',
+          nodes: Object.fromEntries(Object.keys(nodes).map((id) => [id, {}])),
+          hierarchy: Array.from({ length: count - 1 }, (_, index) => ({
+            child: `node-${index + 1}`,
+            parent: `node-${index}`,
+            relationship: 'internal' as const,
+          })),
+        },
+      ],
+      proposals: [
+        {
+          id: 'renamed',
+          label: 'Renamed',
+          base: 'current',
+          patches: Array.from({ length: count }, (_, index) => ({
+            type: 'set-node' as const,
+            node: `node-${index}`,
+            value: { name: `Renamed ${index}` },
+          })),
+        },
+      ],
+    };
+
+    const start = performance.now();
+    const result = resolveView(document, { viewId: 'renamed', selectedGroups: [] });
+    const duration = performance.now() - start;
+
+    expect(result.nodes.get('node-4999')?.name).toBe('Renamed 4999');
+    expect(duration).toBeLessThan(1_000);
+  });
+
   it('creates deduplicated semantic annotations including relationship endpoints', () => {
     const document = cloneValidDocument();
     delete document.proposals[0]!.patchGroups;
@@ -223,6 +265,74 @@ describe('resolveView', () => {
       id: 'shared-leadership',
       label: 'Updated leadership',
     });
+  });
+
+  it('deep-clones all nested input values across repeated resolutions', () => {
+    const document = cloneValidDocument();
+    document.nodes.state = {
+      name: 'Department of State',
+      aliases: ['State Department'],
+      symbol: { type: 'image', url: 'https://example.com/state.svg', alt: 'State seal' },
+    };
+    document.relationships![0]!.sources = [
+      { label: 'Relationship source', url: 'https://example.com/relationship' },
+    ];
+    document.presentation = { initialExpansionDepth: 2, focusNodes: ['state'] };
+    delete document.proposals[0]!.patchGroups;
+    document.proposals[0]!.patches = [
+      {
+        type: 'set-node',
+        node: 'state',
+        value: {
+          metadata: { budget: 10 },
+          sources: [{ label: 'Node source', url: 'https://example.com/node' }],
+        },
+        semantic: 'updated',
+        relatedNodes: ['usaid'],
+        sources: [{ label: 'Patch source', url: 'https://example.com/patch' }],
+      },
+    ];
+    const before = structuredClone(document);
+
+    const first = resolveView(document, { viewId: 'proposal-a', selectedGroups: [] });
+    const node = first.nodes.get('state')! as unknown as {
+      aliases: string[];
+      symbol: { alt: string };
+      metadata: Record<string, number>;
+      sources: { label: string }[];
+    };
+    node.aliases.push('Mutated alias');
+    node.symbol.alt = 'Mutated symbol';
+    node.metadata.budget = 99;
+    node.sources[0]!.label = 'Mutated node source';
+    (first.parents.get('state-hq')!.sources as unknown as { label: string }[])[0]!.label =
+      'Mutated edge source';
+    (
+      first.relationships.get('shared-leadership')!.sources as unknown as { label: string }[]
+    )[0]!.label = 'Mutated relationship source';
+    (first.semanticAnnotations[0]!.nodes as string[]).push('state-hq');
+    (first.semanticAnnotations[0]!.sources as unknown as { label: string }[])[0]!.label =
+      'Mutated patch source';
+    (first.presentation.focusNodes as string[]).push('usaid');
+
+    const second = resolveView(document, { viewId: 'proposal-a', selectedGroups: [] });
+
+    expect(document).toEqual(before);
+    expect(second.nodes.get('state')).toMatchObject({
+      aliases: ['State Department'],
+      symbol: { alt: 'State seal' },
+      metadata: { budget: 10 },
+      sources: [{ label: 'Node source' }],
+    });
+    expect(second.parents.get('state-hq')?.sources?.[0]?.label).toBe('State');
+    expect(second.relationships.get('shared-leadership')?.sources?.[0]?.label).toBe(
+      'Relationship source',
+    );
+    expect(second.semanticAnnotations[0]).toMatchObject({
+      nodes: ['state', 'usaid'],
+      sources: [{ label: 'Patch source' }],
+    });
+    expect(second.presentation.focusNodes).toEqual(['state']);
   });
 
   it('applies exact selected groups plus locked groups in document order', () => {
@@ -312,6 +422,51 @@ describe('resolveView', () => {
       new ResolutionError(
         'proposal-a/patchGroups/0/patches/0: unsupported patch type "unknown-patch"',
       ),
+    );
+  });
+
+  it('reports null runtime patches with an escaped proposal path', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.id = 'proposal~/runtime';
+    delete document.proposals[0]!.patchGroups;
+    document.proposals[0]!.patches = [null as never];
+
+    expect(() =>
+      resolveView(document, { viewId: 'proposal~/runtime', selectedGroups: [] }),
+    ).toThrowError(
+      new ResolutionError('proposal~0~1runtime/patches/0: patch must be an object'),
+    );
+  });
+
+  it('reports null add-relationship payloads contextually', () => {
+    const document = cloneValidDocument();
+    delete document.proposals[0]!.patchGroups;
+    document.proposals[0]!.patches = [
+      { type: 'add-relationship', relationship: null } as never,
+    ];
+
+    expect(() =>
+      resolveView(document, { viewId: 'proposal-a', selectedGroups: [] }),
+    ).toThrowError(
+      new ResolutionError('proposal-a/patches/0: relationship must be an object'),
+    );
+  });
+
+  it('reports null set-relationship values contextually', () => {
+    const document = cloneValidDocument();
+    delete document.proposals[0]!.patchGroups;
+    document.proposals[0]!.patches = [
+      {
+        type: 'set-relationship',
+        relationship: 'shared-leadership',
+        value: null,
+      } as never,
+    ];
+
+    expect(() =>
+      resolveView(document, { viewId: 'proposal-a', selectedGroups: [] }),
+    ).toThrowError(
+      new ResolutionError('proposal-a/patches/0: relationship value must be an object'),
     );
   });
 });
