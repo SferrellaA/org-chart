@@ -7,11 +7,14 @@
     "dist"
   ],
   "exports": {
-    ".": "./dist/org-delta-chart.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/org-delta-chart.js"
+    },
     "./schema": "./dist/org-delta-chart.schema.json"
   },
   "scripts": {
-    "build": "vite build && vite build --config vite.viewer.config.ts",
+    "build": "vite build && tsc -p tsconfig.build.json && vite build --config vite.viewer.config.ts",
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -26,6 +29,7 @@
   "devDependencies": {
     "@playwright/test": "^1.54.1",
     "@types/d3": "^7.4.3",
+    "@types/node": "^24.0.14",
     "jsdom": "^26.1.0",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
