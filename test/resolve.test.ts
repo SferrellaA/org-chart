@@ -335,13 +335,13 @@ describe('resolveView', () => {
     expect(second.presentation.focusNodes).toEqual(['state']);
   });
 
-  it('applies exact selected groups plus locked groups in document order', () => {
+  it('applies explicitly selected groups in document order', () => {
     const document = cloneValidDocument();
     document.proposals[0]!.patchGroups = [
       {
         id: 'selected-late-name',
         label: 'Selected',
-        patches: [{ type: 'set-node', node: 'usaid', value: { name: 'Selected' } }],
+        patches: [{ type: 'set-node', node: 'usaid', value: { note: 'Selected' } }],
       },
       {
         id: 'unselected',
@@ -358,11 +358,11 @@ describe('resolveView', () => {
 
     const result = resolveView(document, {
       viewId: 'proposal-a',
-      selectedGroups: ['selected-late-name'],
+      selectedGroups: ['selected-late-name', 'locked-final-name'],
     });
 
     expect(result.nodes.get('usaid')?.name).toBe('Locked');
-    expect(result.nodes.get('usaid')?.note).toBeUndefined();
+    expect(result.nodes.get('usaid')?.note).toBe('Selected');
     expect(() =>
       resolveView(document, { viewId: 'proposal-a', selectedGroups: ['missing-group'] }),
     ).toThrowError('proposal-a/patchGroups: group "missing-group" does not exist');

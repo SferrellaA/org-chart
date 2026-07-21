@@ -12,6 +12,7 @@ import type {
   SnapshotState,
   Source,
 } from './types';
+import { validateSelection } from './selection';
 
 export interface ResolveOptions {
   viewId: string;
@@ -331,7 +332,7 @@ function applyProposal(
   for (const [groupIndex, group] of (proposal.patchGroups ?? []).entries()) {
     const groupPath = `${proposalPath}/patchGroups/${groupIndex}/patches`;
     if (!Array.isArray(group.patches)) fail(groupPath, 'patches must be an array');
-    if (!group.locked && !selected.has(group.id)) continue;
+    if (!selected.has(group.id)) continue;
     applyPatchList(document, state, group.patches, groupPath);
   }
 }
@@ -357,6 +358,15 @@ export function resolveView(document: OrgDocument, options: ResolveOptions): Res
   for (const id of selected) {
     if (!availableGroups.has(id)) {
       fail(`${escapePathSegment(options.viewId)}/patchGroups`, `group "${id}" does not exist`);
+    }
+  }
+  for (const item of chain) {
+    const groupIds = new Set((item.patchGroups ?? []).map((group) => group.id));
+    const itemSelection = options.selectedGroups.filter((id) => groupIds.has(id));
+    const selectionError = validateSelection(item, itemSelection);
+    if (selectionError) {
+      const message = selectionError[0]!.toLowerCase() + selectionError.slice(1);
+      fail(`${escapePathSegment(item.id)}/patchGroups`, message);
     }
   }
 
