@@ -12,7 +12,12 @@ import type {
   SnapshotState,
   Source,
 } from './types';
-import { validateSelection } from './selection';
+import {
+  concretePatchWrites,
+  concreteValueFingerprint,
+  validateSelection,
+  type ConcreteWrite,
+} from './selection';
 
 export interface ResolveOptions {
   viewId: string;
@@ -33,6 +38,10 @@ interface MutableResolution {
   relationshipTombstones: Map<string, Relationship>;
   semanticAnnotations: SemanticAnnotation[];
   presentation: PresentationDefaults;
+}
+
+interface SelectedExecutionContext {
+  effects: Map<string, string>;
 }
 
 function fail(path: string, message: string): never {
@@ -209,12 +218,77 @@ function hasEqualFields(current: object, written: object): boolean {
   );
 }
 
+function selectedPatchEffects(
+  document: OrgDocument,
+  state: MutableResolution,
+  patch: Patch,
+): ConcreteWrite[] {
+  const effects = new Map(concretePatchWrites(patch).map((write) => [write.target, write]));
+  const addEffect = (target: string, value: unknown): void => {
+    effects.set(target, { target, value, fingerprint: concreteValueFingerprint(value) });
+  };
+  if (patch.type === 'add-node') {
+    for (const [key, value] of Object.entries({
+      ...document.nodes[patch.node],
+      ...patch.value,
+    })) {
+      addEffect(`${patch.node}.${key}`, value);
+    }
+    addEffect(`${patch.node}.parent`, null);
+  }
+  if (patch.type === 'remove-node') {
+    addEffect(`${patch.node}.parent`, null);
+    for (const [child, edge] of state.parents) {
+      if (edge.parent === patch.node) addEffect(`${child}.parent`, null);
+    }
+    for (const relationship of state.relationships.values()) {
+      if (relationship.source === patch.node || relationship.target === patch.node) {
+        addEffect(`${relationship.id}.existence`, false);
+      }
+    }
+  }
+  return [...effects.values()];
+}
+
+function patchMatchesCurrentState(state: MutableResolution, patch: Patch): boolean {
+  switch (patch.type) {
+    case 'add-node': {
+      const node = state.nodes.get(patch.node);
+      return node !== undefined && hasEqualFields(node, patch.value ?? {});
+    }
+    case 'remove-node':
+      return !state.nodes.has(patch.node);
+    case 'set-node': {
+      const node = state.nodes.get(patch.node);
+      return node !== undefined && hasEqualFields(node, patch.value);
+    }
+    case 'set-parent':
+      return valuesEqual(state.parents.get(patch.node), {
+        parent: patch.parent,
+        relationship: patch.relationship,
+        note: patch.note,
+        sources: cloneSources(patch.sources),
+      });
+    case 'remove-parent':
+      return !state.nodes.has(patch.node) || !state.parents.has(patch.node);
+    case 'add-relationship':
+      return valuesEqual(state.relationships.get(patch.relationship.id), patch.relationship);
+    case 'remove-relationship':
+      return !state.relationships.has(patch.relationship);
+    case 'set-relationship': {
+      const relationship = state.relationships.get(patch.relationship);
+      return relationship !== undefined && hasEqualFields(relationship, patch.value);
+    }
+  }
+}
+
 function applyPatch(
   document: OrgDocument,
   state: MutableResolution,
   patch: Patch,
   path: string,
-  idempotent = false,
+  allowNoOp = false,
+  selected = false,
 ): void {
   if (!isObject(patch)) fail(path, 'patch must be an object');
   let annotationRelationship: Relationship | undefined;
@@ -222,9 +296,7 @@ function applyPatch(
     case 'add-node': {
       const existing = state.nodes.get(patch.node);
       if (existing) {
-        if (!idempotent || !hasEqualFields(existing, patch.value ?? {})) {
-          fail(path, `node "${patch.node}" already exists`);
-        }
+        if (!allowNoOp) fail(path, `node "${patch.node}" already exists`);
         break;
       }
       const definition = document.nodes[patch.node];
@@ -234,7 +306,7 @@ function applyPatch(
     }
     case 'remove-node': {
       if (!state.nodes.has(patch.node)) {
-        if (idempotent) break;
+        if (allowNoOp) break;
         fail(path, `node "${patch.node}" does not exist`);
       }
       state.nodes.delete(patch.node);
@@ -244,7 +316,7 @@ function applyPatch(
       }
       for (const [id, relationship] of state.relationships) {
         if (relationship.source === patch.node || relationship.target === patch.node) {
-          if (idempotent) state.relationshipTombstones.set(id, cloneRelationship(relationship));
+          if (selected) state.relationshipTombstones.set(id, cloneRelationship(relationship));
           state.relationships.delete(id);
         }
       }
@@ -252,7 +324,7 @@ function applyPatch(
     }
     case 'set-node': {
       const node = requireNode(state, patch.node, path);
-      if (idempotent && hasEqualFields(node, patch.value)) break;
+      if (allowNoOp) break;
       state.nodes.set(patch.node, cloneNode(patch.node, { ...node, ...patch.value }));
       break;
     }
@@ -263,7 +335,7 @@ function applyPatch(
         note: patch.note,
         sources: cloneSources(patch.sources),
       } as ResolvedParent;
-      if (idempotent && valuesEqual(state.parents.get(patch.node), parent)) break;
+      if (allowNoOp) break;
       requireNode(state, patch.node, path);
       requireNode(state, patch.parent, path);
       validateParentChange(state, patch.node, patch.parent, path);
@@ -271,15 +343,18 @@ function applyPatch(
       break;
     }
     case 'remove-parent':
-      if (idempotent && (!state.nodes.has(patch.node) || !state.parents.has(patch.node))) break;
+      if (allowNoOp) break;
       requireNode(state, patch.node, path);
+      if (selected && !state.parents.has(patch.node)) {
+        fail(path, `node "${patch.node}" does not have a parent`);
+      }
       state.parents.delete(patch.node);
       break;
     case 'add-relationship':
       if (!isObject(patch.relationship)) fail(path, 'relationship must be an object');
       annotationRelationship = state.relationships.get(patch.relationship.id);
       if (annotationRelationship) {
-        if (idempotent && valuesEqual(annotationRelationship, patch.relationship)) break;
+        if (allowNoOp) break;
         fail(path, `relationship "${patch.relationship.id}" already exists`);
       }
       requireNode(state, patch.relationship.source, path);
@@ -288,14 +363,15 @@ function applyPatch(
       state.relationships.set(patch.relationship.id, annotationRelationship);
       break;
     case 'remove-relationship':
-      annotationRelationship =
-        state.relationships.get(patch.relationship) ??
-        (idempotent ? state.relationshipTombstones.get(patch.relationship) : undefined);
+      annotationRelationship = state.relationships.get(patch.relationship);
       if (!annotationRelationship) {
-        if (idempotent) break;
+        if (allowNoOp) {
+          annotationRelationship = state.relationshipTombstones.get(patch.relationship);
+          break;
+        }
         fail(path, `relationship "${patch.relationship}" does not exist`);
       }
-      if (idempotent && state.relationships.has(patch.relationship)) {
+      if (selected) {
         state.relationshipTombstones.set(
           patch.relationship,
           cloneRelationship(annotationRelationship),
@@ -306,7 +382,7 @@ function applyPatch(
     case 'set-relationship': {
       const relationship = requireRelationship(state, patch.relationship, path);
       if (!isObject(patch.value)) fail(path, 'relationship value must be an object');
-      if (idempotent && hasEqualFields(relationship, patch.value)) {
+      if (allowNoOp) {
         annotationRelationship = relationship;
         break;
       }
@@ -334,13 +410,23 @@ function applyPatchList(
   state: MutableResolution,
   patches: unknown,
   path: string,
+  context?: SelectedExecutionContext,
 ): void {
   if (!Array.isArray(patches)) fail(path, 'patches must be an array');
   let finalPath = path;
   patches.forEach((patch, index) => {
     const patchPath = `${path}/${index}`;
     finalPath = patchPath;
+    let effects: ConcreteWrite[] = [];
+    if (context && isObject(patch)) {
+      try {
+        effects = selectedPatchEffects(document, state, patch as unknown as Patch);
+      } catch {
+        // applyPatch retains contextual runtime errors for malformed patch values.
+      }
+    }
     applyPatch(document, state, patch as Patch, patchPath);
+    for (const effect of effects) context!.effects.delete(effect.target);
   });
   validateHierarchy(state.nodes, state.parents, finalPath);
 }
@@ -350,12 +436,26 @@ function applySelectedPatchGroup(
   state: MutableResolution,
   patches: readonly Patch[],
   path: string,
+  context: SelectedExecutionContext,
 ): void {
   let finalPath = path;
   patches.forEach((patch, index) => {
     const patchPath = `${path}/${index}`;
     finalPath = patchPath;
-    applyPatch(document, state, patch, patchPath, true);
+    let effects: ConcreteWrite[] = [];
+    if (isObject(patch)) {
+      try {
+        effects = selectedPatchEffects(document, state, patch);
+      } catch {
+        // applyPatch retains contextual runtime errors for malformed patch values.
+      }
+    }
+    const hasProvenance =
+      effects.length > 0 &&
+      effects.every((effect) => context.effects.get(effect.target) === effect.fingerprint);
+    const allowNoOp = hasProvenance && patchMatchesCurrentState(state, patch);
+    applyPatch(document, state, patch, patchPath, allowNoOp, true);
+    for (const effect of effects) context.effects.set(effect.target, effect.fingerprint);
   });
   validateHierarchy(state.nodes, state.parents, finalPath);
 }
@@ -395,24 +495,27 @@ function applyProposal(
   state: MutableResolution,
   proposal: Proposal,
   selected: ReadonlySet<string>,
+  context: SelectedExecutionContext,
 ): void {
   const proposalPath = escapePathSegment(proposal.id);
   if (proposal.snapshot) {
     const replacement = resolveSnapshot(document, proposal.snapshot, `${proposalPath}/snapshot`);
     state.nodes = replacement.nodes;
     state.parents = replacement.parents;
+    context.effects.clear();
   }
   applyPatchList(
     document,
     state,
     proposal.patches === undefined ? [] : proposal.patches,
     `${proposalPath}/patches`,
+    context,
   );
   for (const [groupIndex, group] of (proposal.patchGroups ?? []).entries()) {
     const groupPath = `${proposalPath}/patchGroups/${groupIndex}/patches`;
     if (!Array.isArray(group.patches)) fail(groupPath, 'patches must be an array');
     if (!selected.has(group.id)) continue;
-    applySelectedPatchGroup(document, state, group.patches, groupPath);
+    applySelectedPatchGroup(document, state, group.patches, groupPath, context);
   }
 }
 
@@ -468,7 +571,8 @@ export function resolveView(document: OrgDocument, options: ResolveOptions): Res
         : {}),
     },
   };
-  for (const item of chain) applyProposal(document, state, item, selected);
+  const selectedContext: SelectedExecutionContext = { effects: new Map() };
+  for (const item of chain) applyProposal(document, state, item, selected, selectedContext);
 
   return {
     nodes: state.nodes,

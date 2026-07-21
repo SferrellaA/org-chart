@@ -69,6 +69,26 @@ describe('patch selection', () => {
     expect(result.error).toBeUndefined();
   });
 
+  it('initializes 4,000 independent defaults without quadratic growth', () => {
+    const measure = (count: number): number => {
+      const input = proposal(
+        Array.from({ length: count }, (_, index) =>
+          group(`default-${index}`, { defaultSelected: true }),
+        ),
+      );
+      const start = performance.now();
+      expect(initialPatchSelection(input).selected).toHaveLength(count);
+      return performance.now() - start;
+    };
+
+    measure(250);
+    const twoThousand = measure(2_000);
+    const fourThousand = measure(4_000);
+
+    expect(fourThousand).toBeLessThan(1_500);
+    expect(fourThousand / Math.max(twoThousand, 1)).toBeLessThan(4);
+  });
+
   it('checking a group deselects conflicting optional groups', () => {
     const input = proposal([
       group('old', { defaultSelected: true, conflictsWith: ['new'] }),
@@ -316,6 +336,83 @@ describe('patch selection', () => {
     expect(result.nodes.get('new')).toMatchObject({ name: 'New node', note: 'Added' });
   });
 
+  it('rejects a first selected add-node against matching base state', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'add-existing',
+        label: 'Add existing',
+        patches: [{ type: 'add-node', node: 'usaid' }],
+      },
+    ];
+
+    expect(() =>
+      resolveView(document, { viewId: 'proposal-a', selectedGroups: ['add-existing'] }),
+    ).toThrowError('proposal-a/patchGroups/0/patches/0: node "usaid" already exists');
+  });
+
+  it('rejects a first selected remove-node against absent base state', () => {
+    const document = cloneValidDocument();
+    document.nodes.new = { name: 'New' };
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'remove-absent',
+        label: 'Remove absent',
+        patches: [{ type: 'remove-node', node: 'new' }],
+      },
+    ];
+
+    expect(() =>
+      resolveView(document, { viewId: 'proposal-a', selectedGroups: ['remove-absent'] }),
+    ).toThrowError('proposal-a/patchGroups/0/patches/0: node "new" does not exist');
+  });
+
+  it('rejects a first selected remove-parent against parentless base state', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'remove-parent',
+        label: 'Remove parent',
+        patches: [{ type: 'remove-parent', node: 'state' }],
+      },
+    ];
+
+    expect(() =>
+      resolveView(document, { viewId: 'proposal-a', selectedGroups: ['remove-parent'] }),
+    ).toThrowError('proposal-a/patchGroups/0/patches/0: node "state" does not have a parent');
+  });
+
+  it('rejects a first selected remove-parent against a missing base node', () => {
+    const document = cloneValidDocument();
+    document.nodes.new = { name: 'New' };
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'remove-parent',
+        label: 'Remove parent',
+        patches: [{ type: 'remove-parent', node: 'new' }],
+      },
+    ];
+
+    expect(() =>
+      resolveView(document, { viewId: 'proposal-a', selectedGroups: ['remove-parent'] }),
+    ).toThrowError('proposal-a/patchGroups/0/patches/0: node "new" does not exist');
+  });
+
+  it('rejects a first selected remove-relationship against absent base state', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'remove-absent',
+        label: 'Remove absent',
+        patches: [{ type: 'remove-relationship', relationship: 'missing' }],
+      },
+    ];
+
+    expect(() =>
+      resolveView(document, { viewId: 'proposal-a', selectedGroups: ['remove-absent'] }),
+    ).toThrowError('proposal-a/patchGroups/0/patches/0: relationship "missing" does not exist');
+  });
+
   it('reapplies an equal historical write after an intervening state change', () => {
     const document = cloneValidDocument();
     document.nodes.usaid!.name = 'Talent';
@@ -460,6 +557,114 @@ describe('patch selection', () => {
       { semantic: 'first removal', nodes: ['state', 'usaid'] },
       { semantic: 'second removal', nodes: ['state', 'usaid'] },
     ]);
+  });
+
+  it('persists selected provenance across proposal bases', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'remove-first',
+        label: 'Remove first',
+        patches: [{ type: 'remove-node', node: 'usaid' }],
+      },
+    ];
+    document.proposals.push({
+      id: 'proposal-b',
+      label: 'Proposal B',
+      base: 'proposal-a',
+      patchGroups: [
+        {
+          id: 'remove-again',
+          label: 'Remove again',
+          patches: [{ type: 'remove-node', node: 'usaid' }],
+        },
+      ],
+    });
+
+    expect(
+      resolveView(document, {
+        viewId: 'proposal-b',
+        selectedGroups: ['remove-first', 'remove-again'],
+      }).nodes.has('usaid'),
+    ).toBe(false);
+  });
+
+  it('invalidates selected provenance touched by an unconditional proposal patch', () => {
+    const document = cloneValidDocument();
+    document.relationships = [];
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'add-selected',
+        label: 'Add selected',
+        patches: [
+          {
+            type: 'add-relationship',
+            relationship: {
+              id: 'temporary',
+              type: 'coordination',
+              source: 'state',
+              target: 'usaid',
+              label: 'Temporary',
+            },
+          },
+        ],
+      },
+    ];
+    document.proposals.push({
+      id: 'proposal-b',
+      label: 'Proposal B',
+      base: 'proposal-a',
+      patches: [{ type: 'remove-relationship', relationship: 'temporary' }],
+      patchGroups: [
+        {
+          id: 'remove-selected',
+          label: 'Remove selected',
+          patches: [{ type: 'remove-relationship', relationship: 'temporary' }],
+        },
+      ],
+    });
+
+    expect(() =>
+      resolveView(document, {
+        viewId: 'proposal-b',
+        selectedGroups: ['add-selected', 'remove-selected'],
+      }),
+    ).toThrowError('proposal-b/patchGroups/0/patches/0: relationship "temporary" does not exist');
+  });
+
+  it('clears selected provenance when a proposal snapshot replaces state', () => {
+    const document = cloneValidDocument();
+    document.nodes.new = { name: 'New' };
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'add-selected',
+        label: 'Add selected',
+        patches: [{ type: 'add-node', node: 'new' }],
+      },
+    ];
+    document.proposals.push({
+      id: 'proposal-b',
+      label: 'Proposal B',
+      base: 'proposal-a',
+      snapshot: {
+        nodes: { state: {}, new: {} },
+        hierarchy: [{ child: 'new', parent: 'state', relationship: 'internal' }],
+      },
+      patchGroups: [
+        {
+          id: 'add-again',
+          label: 'Add again',
+          patches: [{ type: 'add-node', node: 'new' }],
+        },
+      ],
+    });
+
+    expect(() =>
+      resolveView(document, {
+        viewId: 'proposal-b',
+        selectedGroups: ['add-selected', 'add-again'],
+      }),
+    ).toThrowError('proposal-b/patchGroups/0/patches/0: node "new" already exists');
   });
 
   it('rejects incomplete manual resolver selections and accepts valid selections', () => {
