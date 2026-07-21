@@ -24,6 +24,8 @@ export interface RenderRelationship {
   id: string;
   source: string;
   target: string;
+  sourceAncestors: readonly string[];
+  targetAncestors: readonly string[];
   label: string;
   type: string;
   aggregated: boolean;

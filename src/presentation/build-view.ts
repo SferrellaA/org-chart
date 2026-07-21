@@ -95,28 +95,38 @@ function projectHierarchy(chart: ResolvedChart): {
   return { projections, order, subordinateParents };
 }
 
-function visibleInternalIds(
+function projectVisibility(
   chart: ResolvedChart,
   projections: ReadonlyMap<string, Projection>,
+  order: readonly string[],
   options: BuildRenderViewOptions,
-): Set<string> {
+): { visibleInternal: Set<string>; visibleAnchors: Map<string, string> } {
   const visible = new Set<string>();
   if (options.showInternal) {
     for (const [id, projection] of projections) if (projection.internal) visible.add(id);
-    return visible;
-  }
-  for (const requested of options.revealedInternalIds) {
-    let current: string | undefined = requested;
-    const visited = new Set<string>();
-    while (current !== undefined && !visited.has(current)) {
-      visited.add(current);
-      const projection = projections.get(current);
-      if (!projection?.internal) break;
-      visible.add(current);
-      current = chart.parents.get(current)?.parent;
+  } else {
+    for (const requested of options.revealedInternalIds) {
+      if (projections.get(requested)?.internal) visible.add(requested);
+    }
+    for (let index = order.length - 1; index >= 0; index -= 1) {
+      const id = order[index];
+      if (id === undefined || !visible.has(id)) continue;
+      const parent = chart.parents.get(id)?.parent;
+      if (parent !== undefined && projections.get(parent)?.internal) visible.add(parent);
     }
   }
-  return visible;
+
+  const visibleAnchors = new Map<string, string>();
+  for (const id of order) {
+    const projection = projections.get(id)!;
+    if (!projection.internal || visible.has(id)) {
+      visibleAnchors.set(id, id);
+      continue;
+    }
+    const parent = chart.parents.get(id)?.parent;
+    visibleAnchors.set(id, (parent && visibleAnchors.get(parent)) ?? projection.outerId);
+  }
+  return { visibleInternal: visible, visibleAnchors };
 }
 
 function relationshipValues(chart: ResolvedChart, diff: ChartDiff): Relationship[] {
@@ -129,23 +139,24 @@ function relationshipValues(chart: ResolvedChart, diff: ChartDiff): Relationship
   return result;
 }
 
-function visibleRelationshipAnchor(
-  endpoint: string,
-  chart: ResolvedChart,
+function relationshipLineage(
+  anchor: string,
   projections: ReadonlyMap<string, Projection>,
-  visibleInternal: ReadonlySet<string>,
-): string {
-  let current = endpoint;
-  const visited = new Set<string>();
-  while (!visited.has(current)) {
-    visited.add(current);
-    const projection = projections.get(current);
-    if (!projection || !projection.internal || visibleInternal.has(current)) return current;
-    const parent = chart.parents.get(current)?.parent;
-    if (parent === undefined) return projection.outerId;
-    current = parent;
+): string[] {
+  const lineage = [anchor];
+  const anchorProjection = projections.get(anchor);
+  if (!anchorProjection) return lineage;
+  let outer = anchorProjection.outerId;
+  if (outer !== anchor) lineage.push(outer);
+  const visited = new Set(lineage);
+  while (true) {
+    const parent = projections.get(outer)?.parentId;
+    if (parent === undefined || visited.has(parent)) break;
+    lineage.push(parent);
+    visited.add(parent);
+    outer = parent;
   }
-  return endpoint;
+  return lineage;
 }
 
 export function buildRenderView(
@@ -154,7 +165,12 @@ export function buildRenderView(
   options: BuildRenderViewOptions,
 ): RenderView {
   const { projections, order, subordinateParents } = projectHierarchy(chart);
-  const visibleInternal = visibleInternalIds(chart, projections, options);
+  const { visibleInternal, visibleAnchors } = projectVisibility(
+    chart,
+    projections,
+    order,
+    options,
+  );
   const rows = new Map<string, InternalRow[]>();
   const hiddenCounts = new Map<string, { internal: number; changed: number }>();
 
@@ -234,18 +250,8 @@ export function buildRenderView(
   const relationships: RenderRelationship[] = [];
   if (options.showRelationships) {
     for (const relationship of relationshipValues(chart, diff)) {
-      const source = visibleRelationshipAnchor(
-        relationship.source,
-        chart,
-        projections,
-        visibleInternal,
-      );
-      const target = visibleRelationshipAnchor(
-        relationship.target,
-        chart,
-        projections,
-        visibleInternal,
-      );
+      const source = visibleAnchors.get(relationship.source) ?? relationship.source;
+      const target = visibleAnchors.get(relationship.target) ?? relationship.target;
       if ((!projections.has(source) && !ghostNodes.has(source)) || (!projections.has(target) && !ghostNodes.has(target))) {
         continue;
       }
@@ -255,6 +261,8 @@ export function buildRenderView(
         id: relationship.id,
         source,
         target,
+        sourceAncestors: relationshipLineage(source, projections),
+        targetAncestors: relationshipLineage(target, projections),
         label: relationship.label,
         type: relationship.type,
         aggregated,

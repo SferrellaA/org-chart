@@ -195,6 +195,8 @@ describe('buildRenderView', () => {
         id: 'external',
         source: 'root',
         target: 'other',
+        sourceAncestors: ['root'],
+        targetAncestors: ['other', 'root'],
         label: 'X',
         type: 'coord',
         aggregated: true,
@@ -265,6 +267,8 @@ describe('buildRenderView', () => {
         id: 'hidden-source',
         source: 'revealed',
         target: 'other',
+        sourceAncestors: ['revealed', 'root'],
+        targetAncestors: ['other', 'root'],
         label: 'From',
         type: 'line',
         aggregated: true,
@@ -274,12 +278,75 @@ describe('buildRenderView', () => {
         id: 'hidden-target',
         source: 'other',
         target: 'revealed',
+        sourceAncestors: ['other', 'root'],
+        targetAncestors: ['revealed', 'root'],
         label: 'To',
         type: 'line',
         aggregated: true,
         diffKind: 'unchanged',
       },
     ]);
+  });
+
+  it('retains isolated endpoint lineages from visible anchors through outer ancestors', () => {
+    const relationships = new Map<string, Relationship>([
+      ['first', { id: 'first', type: 'line', source: 'source', target: 'target', label: 'First' }],
+      ['second', { id: 'second', type: 'line', source: 'source', target: 'target', label: 'Second' }],
+    ]);
+    const value = chart(
+      ['root', 'parent', 'source', 'target'],
+      [
+        ['parent', { parent: 'root', relationship: 'subordinate' }],
+        ['source', { parent: 'parent', relationship: 'subordinate' }],
+      ],
+      { relationships },
+    );
+
+    const result = buildRenderView(value, diff([]), options);
+
+    expect(result.relationships[0]).toMatchObject({
+      source: 'source',
+      target: 'target',
+      sourceAncestors: ['source', 'parent', 'root'],
+      targetAncestors: ['target'],
+    });
+    expect(result.relationships[1]?.sourceAncestors).toEqual(['source', 'parent', 'root']);
+    expect(result.relationships[0]?.sourceAncestors).not.toBe(
+      result.relationships[1]?.sourceAncestors,
+    );
+    expect(result.relationships[0]?.targetAncestors).not.toBe(
+      result.relationships[1]?.targetAncestors,
+    );
+  });
+
+  it('starts lineage at a visible internal anchor before its outer ancestors', () => {
+    const relationship = {
+      id: 'r',
+      type: 'line',
+      source: 'hidden',
+      target: 'target',
+      label: 'R',
+    };
+    const value = chart(
+      ['root', 'visible', 'hidden', 'target'],
+      [
+        ['visible', { parent: 'root', relationship: 'internal' }],
+        ['hidden', { parent: 'visible', relationship: 'internal' }],
+      ],
+      { relationships: new Map([['r', relationship]]) },
+    );
+
+    const result = buildRenderView(value, diff([]), {
+      ...options,
+      showInternal: false,
+      revealedInternalIds: new Set(['visible']),
+    });
+
+    expect(result.relationships[0]).toMatchObject({
+      source: 'visible',
+      sourceAncestors: ['visible', 'root'],
+      targetAncestors: ['target'],
+    });
   });
 
   it('expands the configured initial depth and all outer paths to focus nodes', () => {
@@ -313,6 +380,38 @@ describe('buildRenderView', () => {
     expect(result.nodes).toHaveLength(1);
     expect(result.nodes[0]?.internalRows).toHaveLength(count - 1);
     expect(result.nodes[0]?.internalRows.at(-1)?.depth).toBe(count - 1);
+  });
+
+  it('projects 5,000 deep internal relationship endpoints in near-linear time', () => {
+    const count = 5_000;
+    const ids = Array.from({ length: count }, (_, index) => `n-${index}`);
+    const parents = ids.slice(1).map(
+      (id, index) => [id, { parent: ids[index]!, relationship: 'internal' }] as const,
+    );
+    const relationships = new Map<string, Relationship>(
+      Array.from({ length: count }, (_, index) => {
+        const id = `r-${index}`;
+        return [
+          id,
+          { id, type: 'line', source: ids[count - 1]!, target: 'target', label: id },
+        ];
+      }),
+    );
+    const value = chart([...ids, 'target'], parents, { relationships });
+
+    const start = performance.now();
+    const result = buildRenderView(value, diff([]), {
+      ...options,
+      showInternal: false,
+    });
+    const elapsed = performance.now() - start;
+
+    expect(result.relationships).toHaveLength(count);
+    expect(result.relationships[0]).toMatchObject({
+      source: 'n-0',
+      sourceAncestors: ['n-0'],
+    });
+    expect(elapsed).toBeLessThan(1_000);
   });
 });
 
