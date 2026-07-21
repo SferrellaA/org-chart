@@ -1,0 +1,198 @@
+import { describe, expect, it, vi } from 'vitest';
+import {
+  ConnectorOverlay,
+  connectorPath,
+  relationshipPath,
+} from '../src/renderer/overlay';
+import type { RenderNode, RenderRelationship } from '../src/renderer/types';
+
+function rect(x: number, y: number, width: number, height: number): DOMRect {
+  return {
+    bottom: y + height,
+    height,
+    left: x,
+    right: x + width,
+    top: y,
+    width,
+    x,
+    y,
+    toJSON: () => ({}),
+  };
+}
+
+function node(id: string, connectorSourceId?: string): RenderNode {
+  return {
+    id,
+    ...(connectorSourceId === undefined ? {} : { connectorSourceId }),
+    name: id,
+    internalRows: [],
+    hiddenInternalCount: 0,
+    hiddenChangeCount: 0,
+    diffKind: 'unchanged',
+    ghost: false,
+  };
+}
+
+function relationship(
+  sourceAncestors: readonly string[],
+  targetAncestors: readonly string[],
+): RenderRelationship {
+  return {
+    id: 'rel',
+    source: sourceAncestors[0]!,
+    target: targetAncestors[0]!,
+    sourceAncestors,
+    targetAncestors,
+    label: 'works with',
+    type: 'coordination',
+    aggregated: false,
+    diffKind: 'unchanged',
+  };
+}
+
+function anchor(
+  host: HTMLElement,
+  attribute: 'data-node-id' | 'data-internal-id',
+  id: string,
+  bounds: DOMRect,
+): HTMLElement {
+  const element = document.createElement('div');
+  element.setAttribute(attribute, id);
+  element.getBoundingClientRect = () => bounds;
+  host.append(element);
+  return element;
+}
+
+describe('overlay geometry', () => {
+  it('routes internal connectors from source bottom center to target top center', () => {
+    expect(connectorPath(rect(10, 10, 80, 20), rect(200, 100, 80, 40))).toBe(
+      'M 50 30 C 50 65, 240 65, 240 100',
+    );
+  });
+
+  it('returns finite paths for zero-sized anchors', () => {
+    expect(connectorPath(rect(10, 10, 0, 0), rect(20, 20, 0, 0))).toBe(
+      'M 10 10 C 10 15, 20 15, 20 20',
+    );
+    expect(relationshipPath(rect(10, 10, 0, 0), rect(20, 20, 0, 0))).toBe(
+      'M 10 10 C 15 10, 15 20, 20 20',
+    );
+  });
+});
+
+describe('ConnectorOverlay', () => {
+  it('omits relationships whose endpoint lineage has no visible anchor', () => {
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () => rect(0, 0, 500, 500);
+    anchor(host, 'data-node-id', 'source', rect(0, 0, 100, 50));
+    const overlay = new ConnectorOverlay(host, vi.fn());
+
+    overlay.sync([], [relationship(['source'], ['missing'])]);
+
+    expect(host.querySelectorAll('[data-relationship-id]')).toHaveLength(0);
+  });
+
+  it('uses the first visible ancestor and marks an aggregated relationship', () => {
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () => rect(10, 20, 500, 500);
+    const hidden = anchor(host, 'data-node-id', 'source', rect(20, 30, 100, 50));
+    hidden.style.display = 'none';
+    anchor(host, 'data-node-id', 'source-parent', rect(30, 40, 100, 50));
+    anchor(host, 'data-node-id', 'target', rect(200, 200, 100, 50));
+    const overlay = new ConnectorOverlay(host, vi.fn());
+
+    overlay.sync([], [relationship(['source', 'source-parent'], ['target'])]);
+
+    const paths = host.querySelectorAll<SVGPathElement>('[data-relationship-id="rel"]');
+    expect(paths).toHaveLength(2);
+    expect(paths[0]?.dataset.aggregated).toBe('true');
+    expect(paths[0]?.classList.contains('org-delta-connector--aggregated')).toBe(true);
+  });
+
+  it('treats anchors inside collapsed branches as invisible', () => {
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () => rect(0, 0, 500, 500);
+    const collapsed = document.createElement('div');
+    collapsed.dataset.collapsed = 'true';
+    host.append(collapsed);
+    const hidden = anchor(collapsed, 'data-node-id', 'source', rect(0, 0, 100, 50));
+    hidden.hidden = false;
+    anchor(host, 'data-node-id', 'parent', rect(0, 0, 100, 50));
+    anchor(host, 'data-node-id', 'target', rect(200, 200, 100, 50));
+    const overlay = new ConnectorOverlay(host, vi.fn());
+
+    overlay.sync([], [relationship(['source', 'parent'], ['target'])]);
+
+    expect(host.querySelector('[data-relationship-id="rel"]')?.getAttribute('data-aggregated')).toBe(
+      'true',
+    );
+  });
+
+  it('omits a relationship when aggregation produces a self-loop', () => {
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () => rect(0, 0, 500, 500);
+    anchor(host, 'data-node-id', 'parent', rect(0, 0, 100, 50));
+    const overlay = new ConnectorOverlay(host, vi.fn());
+
+    overlay.sync([], [relationship(['missing-source', 'parent'], ['missing-target', 'parent'])]);
+
+    expect(host.querySelectorAll('[data-relationship-id]')).toHaveLength(0);
+  });
+
+  it('retains an explicit relationship self-loop when no aggregation occurred', () => {
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () => rect(0, 0, 500, 500);
+    anchor(host, 'data-node-id', 'same', rect(0, 0, 100, 50));
+    const overlay = new ConnectorOverlay(host, vi.fn());
+
+    overlay.sync([], [relationship(['same'], ['same'])]);
+
+    expect(host.querySelectorAll('[data-relationship-id="rel"]')).toHaveLength(2);
+  });
+
+  it('routes a subordinate connector from its internal row', () => {
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () => rect(10, 20, 500, 500);
+    anchor(host, 'data-internal-id', 'internal', rect(30, 40, 80, 20));
+    anchor(host, 'data-node-id', 'child', rect(200, 200, 100, 50));
+    const overlay = new ConnectorOverlay(host, vi.fn());
+
+    overlay.sync([node('child', 'internal')], []);
+
+    const path = host.querySelector<SVGPathElement>('[data-hierarchy-id="internal->child"]');
+    expect(path?.getAttribute('d')).toBe('M 60 40 C 60 110, 240 110, 240 180');
+    expect(path?.getAttribute('stroke')).toBe('currentColor');
+  });
+
+  it('activates relationship hit paths by click and keyboard without leaking old listeners', () => {
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () => rect(0, 0, 500, 500);
+    anchor(host, 'data-node-id', 'source', rect(0, 0, 100, 50));
+    anchor(host, 'data-node-id', 'target', rect(200, 200, 100, 50));
+    const activate = vi.fn();
+    const overlay = new ConnectorOverlay(host, activate);
+
+    overlay.sync([], [relationship(['source'], ['target'])]);
+    const oldHit = host.querySelector<SVGPathElement>('.org-delta-connector-hit')!;
+    overlay.sync([], [relationship(['source'], ['target'])]);
+    oldHit.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const hit = host.querySelector<SVGPathElement>('.org-delta-connector-hit')!;
+    hit.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    hit.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
+
+    expect(activate).toHaveBeenCalledTimes(2);
+    expect(activate.mock.calls[0]?.[0]).toBe('relationship');
+    expect(activate.mock.calls[0]?.[1]).toBe('rel');
+    expect(activate.mock.calls[0]?.[2]).toBe(hit);
+  });
+
+  it('positions against the host and restores its inline positioning on destroy', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const overlay = new ConnectorOverlay(host, vi.fn());
+
+    expect(host.style.position).toBe('relative');
+    overlay.destroy();
+    expect(host.style.position).toBe('');
+  });
+});
