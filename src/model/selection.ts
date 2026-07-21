@@ -198,16 +198,78 @@ function selectedConflicts(index: GroupIndex, selected: ReadonlySet<string>): Gr
   return conflicts;
 }
 
-function conflictingGroupIds(index: GroupIndex, groupId: string): Set<string> {
-  const conflicts = new Set(index.declaredConflicts.get(groupId) ?? []);
-  for (const [target, write] of index.writes.get(groupId) ?? []) {
-    for (const [fingerprint, owners] of index.writeIndex.get(target) ?? []) {
-      if (fingerprint === write.fingerprint) continue;
-      owners.forEach((id) => conflicts.add(id));
+function conflictingSelectedGroups(
+  index: GroupIndex,
+  groups: ReadonlySet<string>,
+  selected: ReadonlySet<string>,
+): Set<string> {
+  const conflicts = new Set<string>();
+  const fingerprints = new Map<string, string>();
+  for (const groupId of groups) {
+    for (const other of index.declaredConflicts.get(groupId) ?? []) {
+      if (selected.has(other)) conflicts.add(other);
+    }
+    for (const [target, write] of index.writes.get(groupId) ?? []) {
+      fingerprints.set(target, write.fingerprint);
     }
   }
-  conflicts.delete(groupId);
+  for (const [target, selectedFingerprint] of fingerprints) {
+    for (const [fingerprint, owners] of index.writeIndex.get(target) ?? []) {
+      if (fingerprint === selectedFingerprint) continue;
+      for (const owner of owners) {
+        if (selected.has(owner)) conflicts.add(owner);
+      }
+    }
+  }
+  groups.forEach((id) => conflicts.delete(id));
   return conflicts;
+}
+
+function closureConflict(
+  index: GroupIndex,
+  candidate: ReadonlySet<string>,
+  accepted: ReadonlySet<string>,
+  acceptedWrites: ReadonlyMap<string, { group: string; fingerprint: string }>,
+): GroupConflict | undefined {
+  const candidateWrites = new Map<string, { group: string; fingerprint: string }>();
+  for (const groupId of candidate) {
+    const group = index.byId.get(groupId);
+    if (!group) continue;
+    for (const other of index.declaredConflicts.get(groupId) ?? []) {
+      if (!candidate.has(other) && !accepted.has(other)) continue;
+      const first = index.positions.get(groupId)! < index.positions.get(other)! ? groupId : other;
+      const second = first === groupId ? other : groupId;
+      return {
+        first,
+        second,
+        message: `Patch groups "${first}" and "${second}" conflict`,
+      };
+    }
+    for (const [target, write] of index.writes.get(groupId) ?? []) {
+      const previous = candidateWrites.get(target) ?? acceptedWrites.get(target);
+      if (previous && previous.fingerprint !== write.fingerprint) {
+        return {
+          first: previous.group,
+          second: groupId,
+          message: `Patch groups "${previous.group}" and "${groupId}" both set ${target} differently`,
+        };
+      }
+      candidateWrites.set(target, { group: groupId, fingerprint: write.fingerprint });
+    }
+  }
+  return undefined;
+}
+
+function recordWrites(
+  index: GroupIndex,
+  groups: ReadonlySet<string>,
+  writes: Map<string, { group: string; fingerprint: string }>,
+): void {
+  for (const groupId of groups) {
+    for (const [target, write] of index.writes.get(groupId) ?? []) {
+      writes.set(target, { group: groupId, fingerprint: write.fingerprint });
+    }
+  }
 }
 
 function dependencyCycle(index: GroupIndex, selected: ReadonlySet<string>): readonly string[] {
@@ -333,31 +395,20 @@ export function initialPatchSelection(proposal: Proposal): PatchSelection {
   const index = indexGroups(proposal);
   const locked = lockedClosure(index);
   const disabled = disabledGroups(index, locked);
-  const selected = dependencyClosure(
-    index,
-    index.groups
-      .filter((group) => group.locked || group.defaultSelected)
-      .map((group) => group.id),
-  );
-  for (const id of disabled.keys()) removeWithDependents(index, selected, id);
-
+  const selected = new Set(locked);
+  const acceptedWrites = new Map<string, { group: string; fingerprint: string }>();
+  recordWrites(index, locked, acceptedWrites);
   for (const group of index.groups) {
-    if (!selected.has(group.id)) continue;
-    for (const conflict of conflictingGroupIds(index, group.id)) {
-      if (!selected.has(group.id)) break;
-      if (!selected.has(conflict)) continue;
-      const groupLocked = locked.has(group.id);
-      const conflictLocked = locked.has(conflict);
-      if (groupLocked && conflictLocked) continue;
-      const victim = groupLocked
-        ? conflict
-        : conflictLocked
-          ? group.id
-          : index.positions.get(group.id)! < index.positions.get(conflict)!
-            ? conflict
-            : group.id;
-      removeWithDependents(index, selected, victim);
+    if (!group.defaultSelected || selected.has(group.id) || disabled.has(group.id)) continue;
+    const closure = dependencyClosure(index, [group.id]);
+    const candidate = new Set([...closure].filter((id) => !selected.has(id)));
+    const conflict = closureConflict(index, candidate, selected, acceptedWrites);
+    if (conflict) {
+      disabled.set(group.id, conflict.message);
+      continue;
     }
+    candidate.forEach((id) => selected.add(id));
+    recordWrites(index, candidate, acceptedWrites);
   }
   const selectedIds = ordered(index, selected);
   return resultFor(index, selected, validateIndexed(index, selectedIds), disabled);
@@ -406,15 +457,12 @@ export function togglePatchGroup(
   if (protectedError) return resultFor(index, selected, protectedError);
   protectedGroups.forEach((id) => selected.add(id));
 
-  for (const protectedId of protectedGroups) {
-    for (const conflict of conflictingGroupIds(index, protectedId)) {
-      if (!selected.has(conflict)) continue;
-      if (protectedGroups.has(conflict) || locked.has(conflict)) {
-        const conflictError = validateIndexed(index, ordered(index, selected));
-        return resultFor(index, new Set(current.selected), conflictError);
-      }
-      removeWithDependents(index, selected, conflict);
+  for (const conflict of conflictingSelectedGroups(index, protectedGroups, selected)) {
+    if (locked.has(conflict)) {
+      const conflictError = validateIndexed(index, ordered(index, selected));
+      return resultFor(index, new Set(current.selected), conflictError);
     }
+    removeWithDependents(index, selected, conflict);
   }
   const selectedIds = ordered(index, selected);
   return resultFor(index, selected, validateIndexed(index, selectedIds));

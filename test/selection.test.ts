@@ -69,6 +69,20 @@ describe('patch selection', () => {
     expect(result.error).toBeUndefined();
   });
 
+  it('gives the first default root precedence over a later default conflicting with its support', () => {
+    const input = proposal([
+      group('first', { defaultSelected: true, requires: ['support'] }),
+      group('second', { defaultSelected: true, conflictsWith: ['support'] }),
+      group('support', { conflictsWith: ['second'] }),
+    ]);
+
+    const result = initialPatchSelection(input);
+
+    expect(result.selected).toEqual(['first', 'support']);
+    expect(result.disabled.get('second')).toBe('Patch groups "second" and "support" conflict');
+    expect(result.error).toBeUndefined();
+  });
+
   it('initializes 4,000 independent defaults without quadratic growth', () => {
     const measure = (count: number): number => {
       const input = proposal(
@@ -88,6 +102,38 @@ describe('patch selection', () => {
     expect(fourThousand).toBeLessThan(1_500);
     expect(fourThousand / Math.max(twoThousand, 1)).toBeLessThan(4);
   });
+
+  it('indexes adversarial equal-write buckets without pair expansion', () => {
+    const measure = (count: number): number => {
+      const input = proposal(
+        Array.from({ length: count }, (_, index) =>
+          group(`writer-${index}`, {
+            defaultSelected: true,
+            patches: [
+              {
+                type: 'set-node',
+                node: 'state-hr',
+                value: { name: index % 2 === 0 ? 'People' : 'Talent' },
+              },
+            ],
+          }),
+        ),
+      );
+      const start = performance.now();
+      const result = initialPatchSelection(input);
+      expect(result.selected).toHaveLength(Math.ceil(count / 2));
+      return performance.now() - start;
+    };
+
+    measure(250);
+    const twoThousand = measure(2_000);
+    const fourThousand = measure(4_000);
+    const eightThousand = measure(8_000);
+
+    expect(eightThousand).toBeLessThan(2_000);
+    expect(eightThousand / Math.max(fourThousand, 1)).toBeLessThan(4);
+    expect(fourThousand / Math.max(twoThousand, 1)).toBeLessThan(4);
+  }, 30_000);
 
   it('checking a group deselects conflicting optional groups', () => {
     const input = proposal([
