@@ -10,6 +10,11 @@ import type {
   ValidationResult,
 } from './types';
 
+interface IdOwner {
+  token: object;
+  path: string;
+}
+
 let schemaValidator: ValidateFunction | undefined;
 let schemaCompilationError: string | undefined;
 
@@ -144,9 +149,9 @@ function proposalErrors(
   knownBases: ReadonlySet<string>,
   knownNodes: ReadonlySet<string>,
   knownRelationships: ReadonlySet<string>,
-  globalIdOwners: ReadonlyMap<string, string>,
+  globalIdOwners: ReadonlyMap<string, IdOwner>,
 ): { errors: string[]; relationships: Set<string> } {
-  const owner = `proposal/${proposal.id}`;
+  const owner = `proposal/${escapeJsonPointer(proposal.id)}`;
   const errors: string[] = [];
   const proposalRelationships = new Set(knownRelationships);
   const introducedRelationships = new Set<string>();
@@ -172,7 +177,7 @@ function proposalErrors(
   const groups = proposal.patchGroups ?? [];
   const groupIds = new Set(groups.map((group) => group.id));
   const groupById = new Map(groups.map((group) => [group.id, group]));
-  const declaredRelationships = new Map<string, string>();
+  const declaredRelationships = new Map<string, IdOwner>();
   const recordRelationshipDeclarations = (patches: readonly Patch[], path: string): void => {
     patches.forEach((patch, patchIndex) => {
       if (patch.type !== 'add-relationship') return;
@@ -181,20 +186,20 @@ function proposalErrors(
       const previous = declaredRelationships.get(id);
       const globalOwner = globalIdOwners.get(id);
       if (
-        (globalOwner && globalOwner !== declarationPath) ||
+        (globalOwner && globalOwner.token !== patch) ||
         knownRelationships.has(id) ||
         previous
       ) {
         errors.push(
           `${path}/${patchIndex}/relationship/id: duplicate introduced relationship ID "${id}"` +
-            (globalOwner && globalOwner !== declarationPath
-              ? ` (already used by ${globalOwner})`
+            (globalOwner && globalOwner.token !== patch
+              ? ` (already used by ${globalOwner.path})`
               : previous
-                ? ` (already introduced by ${previous})`
+                ? ` (already introduced by ${previous.path})`
                 : ''),
         );
       } else {
-        declaredRelationships.set(id, declarationPath);
+        declaredRelationships.set(id, { token: patch, path: declarationPath });
       }
     });
   };
@@ -222,11 +227,6 @@ function proposalErrors(
       });
     }
     for (const conflict of group.conflictsWith ?? []) {
-      if (group.locked && groupById.get(conflict)?.locked) {
-        errors.push(
-          `${groupPath}/conflictsWith: locked groups "${group.id}" and "${conflict}" conflict; selection is impossible`,
-        );
-      }
       if ((group.requires ?? []).includes(conflict)) {
         errors.push(
           `${groupPath}: group "${group.id}" requires and conflicts with "${conflict}"`,
@@ -297,6 +297,16 @@ function proposalErrors(
   const guaranteedGroups = dependencyClosure(
     groups.filter((group) => group.locked).map((group) => group.id),
   );
+  for (const [groupIndex, group] of groups.entries()) {
+    if (!guaranteedGroups.has(group.id)) continue;
+    for (const conflict of group.conflictsWith ?? []) {
+      if (guaranteedGroups.has(conflict)) {
+        errors.push(
+          `${owner}/patchGroups/${groupIndex}/conflictsWith: groups "${group.id}" and "${conflict}" are selected by a locked group closure and conflict; selection is impossible`,
+        );
+      }
+    }
+  }
   applyGroups(guaranteedGroups, proposalRelationships, introducedRelationships);
 
   for (const group of groups) {
@@ -320,23 +330,38 @@ export function validateDocument(input: unknown): ValidationResult {
   const document = input as OrgDocument;
   const fatalErrors: string[] = [];
   const knownNodes = new Set(Object.keys(document.nodes));
-  const idOwners = new Map<string, string>();
-  const registerId = (id: string, owner: string): void => {
+  const idOwners = new Map<string, IdOwner>();
+  const registerId = (id: string, path: string, token: object): void => {
     const previous = idOwners.get(id);
-    if (previous) fatalErrors.push(`${owner}: duplicate global ID "${id}" (already used by ${previous})`);
-    else idOwners.set(id, owner);
+    if (previous) {
+      fatalErrors.push(`${path}: duplicate global ID "${id}" (already used by ${previous.path})`);
+    } else {
+      idOwners.set(id, { token, path });
+    }
   };
 
-  Object.keys(document.nodes).forEach((id) => registerId(id, `nodes/${id}`));
-  document.snapshots.forEach((snapshot, index) => registerId(snapshot.id, `snapshots/${index}/id`));
-  document.proposals.forEach((proposal, index) => registerId(proposal.id, `proposals/${index}/id`));
-  document.relationships?.forEach((relationship, index) =>
-    registerId(relationship.id, `relationships/${index}/id`),
+  Object.keys(document.nodes).forEach((id) =>
+    registerId(id, `nodes/${escapeJsonPointer(id)}`, document.nodes[id]!),
   );
-  document.zones?.forEach((zone, index) => registerId(zone.id, `zones/${index}/id`));
+  document.snapshots.forEach((snapshot, index) =>
+    registerId(snapshot.id, `snapshots/${index}/id`, snapshot),
+  );
+  document.proposals.forEach((proposal, index) =>
+    registerId(proposal.id, `proposals/${index}/id`, proposal),
+  );
+  document.relationships?.forEach((relationship, index) =>
+    registerId(relationship.id, `relationships/${index}/id`, relationship),
+  );
+  document.zones?.forEach((zone, index) =>
+    registerId(zone.id, `zones/${index}/id`, zone),
+  );
   document.proposals.forEach((proposal, proposalIndex) =>
     proposal.patchGroups?.forEach((group, groupIndex) =>
-      registerId(group.id, `proposals/${proposalIndex}/patchGroups/${groupIndex}/id`),
+      registerId(
+        group.id,
+        `proposals/${proposalIndex}/patchGroups/${groupIndex}/id`,
+        group,
+      ),
     ),
   );
 
@@ -363,16 +388,20 @@ export function validateDocument(input: unknown): ValidationResult {
   const recordIntroducedOwners = (patches: readonly Patch[], path: string): void => {
     patches.forEach((patch, patchIndex) => {
       if (patch.type === 'add-relationship' && !idOwners.has(patch.relationship.id)) {
-        idOwners.set(patch.relationship.id, `${path}/${patchIndex}`);
+        idOwners.set(patch.relationship.id, {
+          token: patch,
+          path: `${path}/${patchIndex}`,
+        });
       }
     });
   };
   document.proposals.forEach((proposal) => {
-    recordIntroducedOwners(proposal.patches ?? [], `proposal/${proposal.id}/patches`);
+    const proposalPath = `proposal/${escapeJsonPointer(proposal.id)}`;
+    recordIntroducedOwners(proposal.patches ?? [], `${proposalPath}/patches`);
     proposal.patchGroups?.forEach((group, groupIndex) => {
       recordIntroducedOwners(
         group.patches,
-        `proposal/${proposal.id}/patchGroups/${groupIndex}/patches`,
+        `${proposalPath}/patchGroups/${groupIndex}/patches`,
       );
     });
   });

@@ -661,6 +661,46 @@ describe('validateDocument', () => {
     }
   });
 
+  it('reports conflicts inside a locked group transitive requirements closure', () => {
+    const document = cloneValidDocument();
+    document.proposals[0]!.patchGroups = [
+      {
+        id: 'locked-root',
+        label: 'Locked root',
+        locked: true,
+        requires: ['middle'],
+        patches: [],
+      },
+      {
+        id: 'middle',
+        label: 'Middle dependency',
+        requires: ['required-a', 'required-b'],
+        patches: [],
+      },
+      {
+        id: 'required-a',
+        label: 'Required A',
+        conflictsWith: ['required-b'],
+        patches: [],
+      },
+      {
+        id: 'required-b',
+        label: 'Required B',
+        conflictsWith: ['required-a'],
+        patches: [],
+      },
+    ];
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.viewErrors.get('proposal-a')?.join('\n')).toMatch(
+        /required-a.*required-b.*impossible/i,
+      );
+    }
+  });
+
   it.each([
     ['node', 'state'],
     ['proposal', 'proposal-a'],
@@ -686,6 +726,46 @@ describe('validateDocument', () => {
     if (result.ok) {
       expect(result.viewErrors.get('proposal-a')?.join('\n')).toMatch(
         new RegExp(`duplicate.*${id}`, 'i'),
+      );
+    }
+  });
+
+  it('does not collapse distinct relationship owners whose legal IDs contain slashes', () => {
+    const document = cloneValidDocument();
+    const relationship = {
+      id: 'duplicate/path',
+      type: 'coordination',
+      source: 'state',
+      target: 'usaid',
+      label: 'Coordinates with',
+    };
+    document.proposals = [
+      {
+        id: 'owner/patchGroups/0',
+        label: 'Direct owner',
+        base: 'current',
+        patches: [{ type: 'add-relationship', relationship }],
+      },
+      {
+        id: 'owner',
+        label: 'Group owner',
+        base: 'current',
+        patchGroups: [
+          {
+            id: 'owner-group',
+            label: 'Owner group',
+            patches: [{ type: 'add-relationship', relationship }],
+          },
+        ],
+      },
+    ];
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.viewErrors.get('owner')?.join('\n')).toMatch(
+        /duplicate.*duplicate\/path/i,
       );
     }
   });
