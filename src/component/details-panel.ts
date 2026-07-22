@@ -18,7 +18,7 @@ function safeHttpUrl(value: string): URL | undefined {
   }
 }
 
-export function closeDetailsPanel(container: HTMLElement): void {
+export function closeDetailsPanel(container: HTMLElement, restoreFocus = true): void {
   const state = states.get(container);
   if (state) {
     state.closeButton.removeEventListener('click', state.clickHandler);
@@ -27,15 +27,18 @@ export function closeDetailsPanel(container: HTMLElement): void {
   }
   container.replaceChildren();
   container.hidden = true;
-  if (state?.trigger.isConnected && typeof state.trigger.focus === 'function') state.trigger.focus();
+  if (restoreFocus && state?.trigger.isConnected && typeof state.trigger.focus === 'function') {
+    state.trigger.focus();
+  }
 }
 
 export function renderDetailsPanel(
   container: HTMLElement,
   item: DetailsItem,
   trigger: HTMLElement | SVGElement,
+  onClose?: () => void,
 ): void {
-  closeDetailsPanel(container);
+  closeDetailsPanel(container, false);
   const header = document.createElement('div');
   header.className = 'details__header';
   const title = document.createElement('h2');
@@ -76,9 +79,13 @@ export function renderDetailsPanel(
     }
     container.append(heading, list);
   }
-  const clickHandler = (): void => closeDetailsPanel(container);
+  const closePanel = (): void => {
+    closeDetailsPanel(container);
+    onClose?.();
+  };
+  const clickHandler = (): void => closePanel();
   const keyHandler = (event: KeyboardEvent): void => {
-    if (event.key === 'Escape') closeDetailsPanel(container);
+    if (event.key === 'Escape') closePanel();
   };
   close.addEventListener('click', clickHandler);
   container.addEventListener('keydown', keyHandler);

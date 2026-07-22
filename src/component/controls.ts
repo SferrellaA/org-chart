@@ -48,12 +48,30 @@ function sourceSummary(sources: readonly Source[] | undefined): string {
   return sources?.length ? ` ${sources.length} source${sources.length === 1 ? '' : 's'}.` : '';
 }
 
+function lockedRequirements(groups: readonly PatchGroup[]): ReadonlyMap<string, string> {
+  const byId = new Map(groups.map((group) => [group.id, group]));
+  const result = new Map<string, string>();
+  for (const locked of groups.filter((group) => group.locked)) {
+    const pending = [...(locked.requires ?? [])];
+    const seen = new Set<string>();
+    while (pending.length > 0) {
+      const id = pending.pop()!;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      result.set(id, `Required by locked "${locked.id}".`);
+      pending.push(...(byId.get(id)?.requires ?? []));
+    }
+  }
+  return result;
+}
+
 export function renderControls(
   container: HTMLElement,
   state: ControlsState,
   handlers: ControlsHandlers,
 ): void {
   const fragment = document.createDocumentFragment();
+  const requiredByLocked = lockedRequirements(state.patchGroups);
   const viewControl = document.createElement('div');
   viewControl.className = 'view-control';
   if (state.views.length <= 4) {
@@ -108,7 +126,7 @@ export function renderControls(
       input.checked = state.patchSelection.selected.includes(group.id);
       const reason = group.locked
         ? `Required change; ${group.label} is locked on.`
-        : state.patchSelection.disabled.get(group.id);
+        : requiredByLocked.get(group.id) ?? state.patchSelection.disabled.get(group.id);
       if (reason) {
         const reasonId = `patch-reason-${group.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
         input.disabled = true;
@@ -119,7 +137,9 @@ export function renderControls(
         explanation.textContent = reason;
         row.append(explanation);
       }
-      input.addEventListener('change', () => handlers.togglePatchGroup(group.id, input.checked));
+      if (!reason) {
+        input.addEventListener('change', () => handlers.togglePatchGroup(group.id, input.checked));
+      }
       label.append(input, document.createTextNode(group.label));
       row.prepend(label);
       if (group.note || group.sources?.length) {
@@ -164,11 +184,21 @@ export function renderControls(
   search.type = 'search';
   search.dataset.search = '';
   search.value = state.searchQuery;
+  search.setAttribute('list', 'org-search-results');
   search.setAttribute('autocomplete', 'off');
   search.setAttribute('aria-controls', 'org-chart-search-results');
   search.addEventListener('input', () => handlers.setSearchQuery(search.value));
   searchLabel.append(search);
   exploration.append(searchLabel);
+  const datalist = document.createElement('datalist');
+  datalist.id = 'org-search-results';
+  for (const entry of state.searchEntries) {
+    const option = document.createElement('option');
+    option.value = entry.label;
+    option.label = entry.id;
+    datalist.append(option);
+  }
+  exploration.append(datalist);
   if (state.searchQuery) {
     const clear = document.createElement('button');
     clear.type = 'button';

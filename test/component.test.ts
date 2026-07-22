@@ -395,11 +395,11 @@ describe('OrgDeltaChartElement', () => {
     const search = element.shadowRoot!.querySelector<HTMLInputElement>('[data-search]')!;
     search.value = 'State Human Resources';
     search.dispatchEvent(new Event('input', { bubbles: true }));
-    expect(renderers[0]!.revealed).toContain('state-hr');
+    expect(renderers[0]!.revealed).toContain('state');
     (element.shadowRoot!.querySelector('[data-search-result="state-hr"]') as HTMLButtonElement).click();
     expect(renderers[0]!.views.at(-1)!.nodes.find((node) => node.id === 'state')!.internalRows
       .map((row) => row.id)).toEqual(['state-hq', 'state-hr']);
-    expect(renderers[0]!.revealed).toContain('state-hr');
+    expect(renderers[0]!.revealed).toContain('state');
 
     (element.shadowRoot!.querySelector('[data-search-clear]') as HTMLButtonElement).click();
     expect(renderers[0]!.views.at(-1)!.nodes.find((node) => node.id === 'state')!.internalRows)
@@ -418,7 +418,14 @@ describe('OrgDeltaChartElement', () => {
         sources: [{ label: 'Source', url: 'https://example.com/choice' }],
       },
       { id: 'alternate', label: 'Alternate', conflictsWith: ['choice'], patches: [] },
-      { id: 'locked', label: 'Locked', locked: true, conflictsWith: ['unavailable'], patches: [] },
+      {
+        id: 'locked-prerequisite', label: 'Locked prerequisite',
+        requires: ['required'], patches: [],
+      },
+      {
+        id: 'locked', label: 'Locked', locked: true, requires: ['locked-prerequisite'],
+        conflictsWith: ['unavailable'], patches: [],
+      },
       { id: 'unavailable', label: 'Unavailable', conflictsWith: ['locked'], patches: [] },
     ];
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
@@ -433,6 +440,21 @@ describe('OrgDeltaChartElement', () => {
     expect(locked.disabled).toBe(true);
     expect(element.shadowRoot!.getElementById(locked.getAttribute('aria-describedby')!)!.textContent)
       .toContain('locked on');
+    const lockedPrerequisite = element.shadowRoot!.querySelector<HTMLInputElement>(
+      '[data-patch-group="locked-prerequisite"]',
+    )!;
+    expect(lockedPrerequisite.checked).toBe(true);
+    expect(lockedPrerequisite.disabled).toBe(true);
+    expect(element.shadowRoot!.getElementById(
+      lockedPrerequisite.getAttribute('aria-describedby')!,
+    )!.textContent).toContain('Required by locked "locked"');
+    lockedPrerequisite.click();
+    locked.click();
+    expect(element.shadowRoot!.querySelector<HTMLInputElement>(
+      '[data-patch-group="locked-prerequisite"]',
+    )!.checked).toBe(true);
+    expect(element.shadowRoot!.querySelector<HTMLInputElement>('[data-patch-group="locked"]')!.checked)
+      .toBe(true);
     const unavailable = element.shadowRoot!.querySelector<HTMLInputElement>('[data-patch-group="unavailable"]')!;
     expect(unavailable.disabled).toBe(true);
     expect(element.shadowRoot!.getElementById(unavailable.getAttribute('aria-describedby')!)!.textContent)
@@ -493,13 +515,91 @@ describe('OrgDeltaChartElement', () => {
     element.setAttribute('src', '/chart.json');
     document.body.append(element);
     await settle();
+    const trigger = document.createElement('button');
+    element.shadowRoot!.querySelector('.canvas')!.append(trigger);
+    renderers[0]!.callbacks.onActivate('node', 'state', trigger);
 
     element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="proposal-a"]')!.click();
     expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent).toContain('is invalid');
+    expect(renderers[0]!.destroyed).toBe(true);
+    expect(element.shadowRoot!.querySelector('.canvas')!.childElementCount).toBe(0);
+    expect(element.shadowRoot!.querySelector('aside')!.hidden).toBe(true);
     element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="current"]')!.click();
     expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent).toContain('ready');
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(renderers).toHaveLength(1);
+    expect(renderers).toHaveLength(2);
+  });
+
+  it('clears a rendered chart when a newly selected baseline is invalid', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const documentData = cloneValidDocument();
+    documentData.proposals[0]!.patchGroups![0]!.patches[0] = {
+      type: 'set-node', node: 'missing', value: { name: 'Invalid' },
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+
+    element.setAttribute('compare-to', 'proposal-a');
+
+    expect(renderers[0]!.destroyed).toBe(true);
+    expect(element.shadowRoot!.querySelector('.canvas')!.childElementCount).toBe(0);
+    expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent)
+      .toContain('baseline "proposal-a" is invalid');
+  });
+
+  it('provides native search datalist options', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(cloneValidDocument())));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+
+    const search = element.shadowRoot!.querySelector<HTMLInputElement>('input[type="search"]')!;
+    expect(search.getAttribute('list')).toBe('org-search-results');
+    const list = element.shadowRoot!.querySelector<HTMLDataListElement>('datalist#org-search-results')!;
+    expect([...list.options].map((option) => option.value)).toContain('State Human Resources');
+  });
+
+  it('refreshes active details after a view update changes the entity', async () => {
+    const documentData = cloneValidDocument();
+    documentData.proposals[0]!.patchGroups![0]!.patches = [{
+      type: 'set-node', node: 'state', value: { name: 'Renamed State' },
+    }];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+    const trigger = document.createElement('button');
+    trigger.dataset.activateKind = 'node';
+    trigger.dataset.activateId = 'state';
+    element.shadowRoot!.querySelector('.canvas')!.append(trigger);
+    renderers[0]!.callbacks.onActivate('node', 'state', trigger);
+
+    element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="proposal-a"]')!.click();
+
+    expect(element.shadowRoot!.querySelector('aside h2')!.textContent).toBe('Renamed State');
+  });
+
+  it('closes active details when a view update removes the entity', async () => {
+    const documentData = cloneValidDocument();
+    documentData.proposals[0]!.patchGroups![0]!.patches = [{ type: 'remove-node', node: 'usaid' }];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+    const trigger = document.createElement('button');
+    element.shadowRoot!.querySelector('.canvas')!.append(trigger);
+    renderers[0]!.callbacks.onActivate('node', 'usaid', trigger);
+
+    element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="proposal-a"]')!.click();
+
+    expect(element.shadowRoot!.querySelector('aside')!.hidden).toBe(true);
+    expect(element.shadowRoot!.activeElement).not.toBe(trigger);
   });
 
   it('opens internal, relationship, and change details activations', async () => {

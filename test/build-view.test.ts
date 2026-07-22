@@ -123,9 +123,9 @@ describe('buildRenderView', () => {
       hiddenChangeCount: 2,
     });
     expect(result.searchEntries).toEqual([
-      { id: 'root', label: 'root', hiddenInternal: false },
-      { id: 'a', label: 'a', hiddenInternal: true },
-      { id: 'b', label: 'b', hiddenInternal: true },
+      { id: 'root', label: 'root', hiddenInternal: false, ownerId: 'root' },
+      { id: 'a', label: 'a', hiddenInternal: true, ownerId: 'root' },
+      { id: 'b', label: 'b', hiddenInternal: true, ownerId: 'root' },
     ]);
   });
 
@@ -168,6 +168,7 @@ describe('buildRenderView', () => {
       id: 'removed',
       label: 'Former office',
       hiddenInternal: false,
+      ownerId: 'removed',
     });
   });
 

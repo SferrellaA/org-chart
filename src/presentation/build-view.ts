@@ -241,10 +241,11 @@ export function buildRenderView(
       id,
       label: node.name,
       hiddenInternal: projection.internal && !visibleInternal.has(id),
+      ownerId: projection.outerId,
     });
   }
   for (const [id, node] of ghostNodes) {
-    searchEntries.push({ id, label: node.name, hiddenInternal: false });
+    searchEntries.push({ id, label: node.name, hiddenInternal: false, ownerId: id });
   }
 
   const relationships: RenderRelationship[] = [];

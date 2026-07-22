@@ -54,6 +54,7 @@ export interface SearchEntry {
   id: string;
   label: string;
   hiddenInternal: boolean;
+  ownerId: string;
 }
 
 export interface RenderView {

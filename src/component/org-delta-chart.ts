@@ -20,6 +20,14 @@ import { renderControls, type ControlsHandlers } from './controls';
 import { installStyles } from './styles';
 import { createTemplate, type ComponentTemplate } from './template';
 
+type DetailsKind = ActivationKind | 'patch-group';
+
+interface ActiveDetails {
+  kind: DetailsKind;
+  id: string;
+  trigger: HTMLElement | SVGElement;
+}
+
 export interface RendererCallbacks {
   onActivate: ActivationHandler;
 }
@@ -96,6 +104,8 @@ export class OrgDeltaChartElement extends HTMLElement {
   private readonly patchSelections = new Map<string, PatchSelection>();
   private readonly revealedInternalIds = new Set<string>();
   private searchQuery = '';
+  private renderView: RenderView | undefined;
+  private activeDetails: ActiveDetails | undefined;
 
   constructor() {
     super();
@@ -184,7 +194,9 @@ export class OrgDeltaChartElement extends HTMLElement {
     this.template.canvas.replaceChildren();
     this.selected = undefined;
     this.diff = undefined;
-    closeDetailsPanel(this.template.details);
+    this.renderView = undefined;
+    this.activeDetails = undefined;
+    closeDetailsPanel(this.template.details, false);
   }
 
   private clearVisualization(): void {
@@ -263,6 +275,7 @@ export class OrgDeltaChartElement extends HTMLElement {
       }
       this.selected = selected;
       this.diff = diff;
+      this.renderView = view;
       this.selectedViewId = selectedId;
       this.template.title.textContent = documentData.title;
       this.template.shell.setAttribute('aria-label', documentData.title);
@@ -276,6 +289,7 @@ export class OrgDeltaChartElement extends HTMLElement {
       this.renderCurrentControls(selectedId, label, baselineLabel, view.searchEntries);
       this.template.status.textContent = `${documentData.title}: ${label} ready, ${summary.added} added, ${summary.removed} removed, ${summary.modified} modified, ${summary.unchanged} unchanged.`;
       this.renderer.render(view);
+      this.refreshActiveDetails();
       this.dispatchEvent(new CustomEvent('org-delta-chart-ready', {
         detail: { title: documentData.title, viewId: selectedId, baselineId, summary: { ...summary } },
       }));
@@ -337,7 +351,8 @@ export class OrgDeltaChartElement extends HTMLElement {
       this.updateChart();
     },
     showPatchGroup: (group, trigger) => {
-      renderDetailsPanel(this.template.details, patchGroupDetails(group), trigger);
+      this.activeDetails = { kind: 'patch-group', id: group.id, trigger };
+      this.showActiveDetails(patchGroupDetails(group), trigger);
     },
     setShowInternal: (checked) => {
       this.showInternal = checked;
@@ -369,7 +384,8 @@ export class OrgDeltaChartElement extends HTMLElement {
         ancestor = this.selected.parents.get(ancestor)?.parent;
       }
       this.updateChart();
-      this.renderer?.reveal(id);
+      const ownerId = this.renderView?.searchEntries.find((entry) => entry.id === id)?.ownerId;
+      if (ownerId) this.renderer?.reveal(ownerId);
       const node = this.selected?.nodes.get(id);
       this.template.status.textContent = node ? `Revealed ${node.name}.` : `Revealed ${id}.`;
     },
@@ -383,8 +399,45 @@ export class OrgDeltaChartElement extends HTMLElement {
 
   private readonly activate: ActivationHandler = (kind, id, trigger) => {
     const item = this.detailsFor(kind, id);
-    if (item) renderDetailsPanel(this.template.details, item, trigger);
+    if (item) {
+      this.activeDetails = { kind, id, trigger };
+      this.showActiveDetails(item, trigger);
+    }
   };
+
+  private showActiveDetails(item: DetailsItem, trigger: HTMLElement | SVGElement): void {
+    renderDetailsPanel(this.template.details, item, trigger, () => {
+      this.activeDetails = undefined;
+    });
+  }
+
+  private refreshActiveDetails(): void {
+    const active = this.activeDetails;
+    if (!active) return;
+    let details: DetailsItem | undefined;
+    if (active.kind === 'patch-group') {
+      const group = this.documentData?.proposals.find(({ id }) => id === this.selectedViewId)
+        ?.patchGroups?.find(({ id }) => id === active.id);
+      details = group ? patchGroupDetails(group) : undefined;
+    } else {
+      details = this.detailsFor(active.kind, active.id);
+    }
+    if (!details) {
+      this.activeDetails = undefined;
+      closeDetailsPanel(this.template.details, false);
+      return;
+    }
+    const currentTrigger = active.kind === 'patch-group'
+      ? [...this.template.toolbar.querySelectorAll<HTMLElement>('[data-patch-group-about]')]
+        .find((candidate) => candidate.dataset.patchGroupAbout === active.id)
+      : [...this.template.canvas.querySelectorAll<HTMLElement | SVGElement>('[data-activate-kind]')]
+        .find((candidate) =>
+          candidate.getAttribute('data-activate-kind') === active.kind
+          && candidate.getAttribute('data-activate-id') === active.id
+        );
+    active.trigger = currentTrigger ?? (active.trigger.isConnected ? active.trigger : this.template.canvas);
+    this.showActiveDetails(details, active.trigger);
+  }
 
   private detailsFor(kind: ActivationKind, id: string): DetailsItem | undefined {
     const chart = this.selected;
@@ -409,7 +462,7 @@ export class OrgDeltaChartElement extends HTMLElement {
     }
     if (kind === 'change') {
       const change = this.diff?.nodes.get(id) ?? this.diff?.relationships.get(id);
-      return change ? changeDetails(change) : undefined;
+      return change && change.kind !== 'unchanged' ? changeDetails(change) : undefined;
     }
     return undefined;
   }
@@ -420,7 +473,7 @@ export class OrgDeltaChartElement extends HTMLElement {
   }
 
   private showViewError(message: string, detail: unknown): void {
-    closeDetailsPanel(this.template.details);
+    this.clearView();
     if (this.documentData) {
       const selectedId = this.selectedViewId ?? this.getAttribute('initial-view') ?? '';
       const selectedLabel = this.documentData.snapshots.find(({ id }) => id === selectedId)?.label
