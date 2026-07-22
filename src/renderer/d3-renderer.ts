@@ -132,6 +132,16 @@ function activationAttributes(kind: ActivationKind, id: string): string {
   return `data-activate-kind="${kind}" data-activate-id="${escapeHtml(id)}"`;
 }
 
+function hierarchyLevel(node: D3HierarchyNode): number {
+  let level = 1;
+  let parent = node.parent;
+  while (parent) {
+    if (!isSynthetic(parent.data)) level += 1;
+    parent = parent.parent;
+  }
+  return level;
+}
+
 function renderNodeContent({ data: node }: D3HierarchyNode): string {
   if (isSynthetic(node)) return '';
   const nodeId = escapeHtml(node.id);
@@ -147,7 +157,8 @@ function renderNodeContent({ data: node }: D3HierarchyNode): string {
     const change = rowDiffKind === 'unchanged'
       ? ''
       : `<button type="button" class="org-delta-change org-delta-change--${rowDiffKind}" ${activationAttributes('change', row.id)} aria-label="View changes for ${escapeHtml(row.name)}">${rowDiffKind}</button>`;
-    return `<div class="org-delta-internal org-delta-internal--${rowDiffKind}" data-internal-id="${rowId}" data-depth="${safeDepth(row.depth)}"><button type="button" class="org-delta-internal-name" ${activationAttributes('internal', row.id)}>${escapeHtml(row.name)}</button>${row.hasSubordinateChildren ? '<span class="org-delta-subordinate-marker" aria-label="Has subordinate children"></span>' : ''}${change}</div>`;
+    const internalLabel = `${row.name}, internal unit, level ${safeDepth(row.depth) + 1}${row.hasSubordinateChildren ? ', contains subordinate organizations' : ''}`;
+    return `<div class="org-delta-internal org-delta-internal--${rowDiffKind}" data-internal-id="${rowId}" data-depth="${safeDepth(row.depth)}" aria-label="${escapeHtml(internalLabel)}"><button type="button" class="org-delta-internal-name" ${activationAttributes('internal', row.id)}>${escapeHtml(row.name)}</button>${row.hasSubordinateChildren ? '<span class="org-delta-subordinate-marker" aria-label="Has subordinate children"></span>' : ''}${change}</div>`;
   }).join('');
   const internalCount = safeCount(node.hiddenInternalCount);
   const changeCount = safeCount(node.hiddenChangeCount);
@@ -170,6 +181,7 @@ export class D3OrgChartRenderer implements ChartRenderer {
   private readonly chart: OrgChartApi;
   private readonly overlay: ConnectorOverlay;
   private readonly minimap = document.createElementNS(SVG_NAMESPACE, 'svg');
+  private readonly relationshipDescriptions = document.createElement('div');
   private reducedMotion: boolean;
   private readonly motionQuery: MediaQueryList | undefined;
   private readonly resizeObserver: ResizeObserver | undefined;
@@ -178,6 +190,7 @@ export class D3OrgChartRenderer implements ChartRenderer {
   private overlayFrame: number | undefined;
   private minimapFrame: number | undefined;
   private transitionFrames = 0;
+  private pendingTreeFocusId: string | undefined;
   private minimapProjection: {
     minX: number;
     minY: number;
@@ -199,6 +212,8 @@ export class D3OrgChartRenderer implements ChartRenderer {
     this.activateFromEvent(event);
   };
   private readonly keyHandler = (event: KeyboardEvent): void => {
+    const treeitem = this.treeitemFromEvent(event);
+    if (treeitem && this.handleTreeKey(event, treeitem)) return;
     if (event.key !== 'Enter' && event.key !== ' ') return;
     const trigger = this.activationTrigger(event);
     if (!trigger) return;
@@ -218,7 +233,10 @@ export class D3OrgChartRenderer implements ChartRenderer {
     this.mount.style.height = '100%';
     this.emptyState.className = 'org-delta-empty-state';
     this.emptyState.hidden = true;
-    this.mount.append(this.emptyState);
+    this.relationshipDescriptions.className =
+      'org-delta-relationship-descriptions org-delta-visually-hidden';
+    this.relationshipDescriptions.setAttribute('aria-label', 'Relationship descriptions');
+    this.mount.append(this.emptyState, this.relationshipDescriptions);
     host.append(this.mount);
     this.motionQuery = typeof matchMedia === 'function'
       ? matchMedia('(prefers-reduced-motion: reduce)')
@@ -257,6 +275,14 @@ export class D3OrgChartRenderer implements ChartRenderer {
       .onExpandOrCollapse((node) => {
         this.captureExpansion([node]);
         this.scheduleAfterLayout();
+        const restoreFocus = this.pendingTreeFocusId === node.data.id;
+        this.pendingTreeFocusId = undefined;
+        queueMicrotask(() => {
+          this.syncTreeSemantics(node.data.id);
+          if (restoreFocus) {
+            this.visibleTreeitems().find((item) => item.dataset.nodeId === node.data.id)?.focus();
+          }
+        });
       })
       .nodeUpdate(function (node: D3HierarchyNode): void {
         if (isSynthetic(node.data)) {
@@ -264,9 +290,19 @@ export class D3OrgChartRenderer implements ChartRenderer {
           this.setAttribute('aria-hidden', 'true');
           return;
         }
+        const hasChildren = Boolean(node.children || node._children || node.data._directSubordinates);
+        const treeitem = this.querySelector<HTMLElement>('[data-node-id]');
+        if (treeitem) {
+          treeitem.dataset.treeNode = '';
+          treeitem.setAttribute('role', 'treeitem');
+          treeitem.setAttribute('aria-level', String(hierarchyLevel(node)));
+          treeitem.setAttribute('aria-label', `${node.data.name}, ${safeDiffKind(node.data.diffKind)}`);
+          treeitem.setAttribute('tabindex', '-1');
+          if (hasChildren) treeitem.setAttribute('aria-expanded', String(Boolean(node.children)));
+          else treeitem.removeAttribute('aria-expanded');
+        }
         const control = this.querySelector<SVGGElement>('.node-button-g');
         if (!control) return;
-        const hasChildren = Boolean(node.children || node._children || node.data._directSubordinates);
         if (!hasChildren) {
           control.removeAttribute('role');
           control.removeAttribute('tabindex');
@@ -350,6 +386,7 @@ export class D3OrgChartRenderer implements ChartRenderer {
     this.emptyState.hidden = view.nodes.length > 0;
     if (view.nodes.length === 0) {
       this.chart.clear();
+      this.relationshipDescriptions.replaceChildren();
       this.chartHasData = false;
       this.expansion.clear();
       this.transitionFrames = 0;
@@ -375,6 +412,8 @@ export class D3OrgChartRenderer implements ChartRenderer {
     );
     this.chart.data(data).render();
     this.chartHasData = true;
+    this.syncRelationshipDescriptions(view);
+    this.syncTreeSemantics();
     this.scheduleAfterLayout();
   }
 
@@ -407,6 +446,7 @@ export class D3OrgChartRenderer implements ChartRenderer {
     this.chart.clear();
     this.overlay.destroy();
     this.minimap.remove();
+    this.relationshipDescriptions.remove();
     this.mount.remove();
     this.currentView = undefined;
   }
@@ -423,6 +463,86 @@ export class D3OrgChartRenderer implements ChartRenderer {
         this.scheduleOverlay();
       }
     });
+  }
+
+  private syncRelationshipDescriptions(view: RenderView): void {
+    this.relationshipDescriptions.replaceChildren(...view.relationships.map((relationship) => {
+      const description = document.createElement('p');
+      description.textContent = `${relationship.label}. ${relationship.source} to ${relationship.target}. ${relationship.diffKind}.`;
+      return description;
+    }));
+  }
+
+  private syncTreeSemantics(preferredId?: string): void {
+    const svg = this.mount.querySelector<SVGSVGElement>('svg.svg-chart-container');
+    if (!svg) return;
+    svg.setAttribute('role', 'tree');
+    svg.setAttribute('aria-label', 'Organization hierarchy');
+    const items = this.visibleTreeitems();
+    if (items.length === 0) return;
+    const root = this.mount.getRootNode();
+    const focused = root instanceof ShadowRoot ? root.activeElement : document.activeElement;
+    const current = items.find((item) => item === focused)
+      ?? items.find((item) => item.dataset.nodeId === preferredId)
+      ?? items.find((item) => item.tabIndex === 0)
+      ?? items[0]!;
+    for (const item of items) item.tabIndex = item === current ? 0 : -1;
+  }
+
+  private visibleTreeitems(): HTMLElement[] {
+    return [...this.mount.querySelectorAll<HTMLElement>('[data-tree-node]')].filter((item) => {
+      const group = item.closest<SVGGElement>('g.node');
+      return group !== null && group.style.display !== 'none' && getComputedStyle(group).display !== 'none';
+    });
+  }
+
+  private treeitemFromEvent(event: KeyboardEvent): HTMLElement | undefined {
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || !target.matches('[data-tree-node]')) return undefined;
+    return this.mount.contains(target) ? target : undefined;
+  }
+
+  private handleTreeKey(event: KeyboardEvent, current: HTMLElement): boolean {
+    const items = this.visibleTreeitems();
+    const index = items.indexOf(current);
+    if (index < 0) return false;
+    let target: HTMLElement | undefined;
+    if (event.key === 'ArrowDown') target = items[index + 1] ?? items[0];
+    else if (event.key === 'ArrowUp') target = items[index - 1] ?? items.at(-1);
+    else if (event.key === 'Home') target = items[0];
+    else if (event.key === 'End') target = items.at(-1);
+    else if (event.key === 'ArrowRight') {
+      if (current.getAttribute('aria-expanded') === 'false') this.toggleTreeitem(current);
+      else target = items.find((item) =>
+        this.currentView?.nodes.find(({ id }) => id === item.dataset.nodeId)?.parentId ===
+          current.dataset.nodeId
+      );
+    } else if (event.key === 'ArrowLeft') {
+      if (current.getAttribute('aria-expanded') === 'true') this.toggleTreeitem(current);
+      else {
+        const parentId = this.currentView?.nodes.find(({ id }) => id === current.dataset.nodeId)
+          ?.parentId;
+        target = items.find((item) => item.dataset.nodeId === parentId);
+      }
+    } else if (event.key === 'Enter') {
+      const id = current.dataset.nodeId;
+      if (id !== undefined) this.options.onActivate('node', id, current);
+    } else if (event.key === ' ') this.toggleTreeitem(current);
+    else return false;
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (target) {
+      for (const item of items) item.tabIndex = item === target ? 0 : -1;
+      target.focus();
+    }
+    return true;
+  }
+
+  private toggleTreeitem(item: HTMLElement): void {
+    this.pendingTreeFocusId = item.dataset.nodeId;
+    item.closest<SVGGElement>('g.node')?.querySelector<SVGGElement>('.node-button-g')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   }
 
   private scheduleMinimap(): void {

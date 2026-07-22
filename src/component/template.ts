@@ -32,7 +32,6 @@ export function createTemplate(root: ShadowRoot): ComponentTemplate {
   workspace.className = 'workspace';
   const canvas = document.createElement('div');
   canvas.className = 'canvas';
-  canvas.tabIndex = 0;
   const details = document.createElement('aside');
   details.className = 'details';
   details.setAttribute('aria-label', 'Details');

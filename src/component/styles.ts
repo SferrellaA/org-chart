@@ -29,6 +29,7 @@ export const componentStyles = `
   .details ul { padding-left: 20px; }
   .details a { overflow-wrap: anywhere; }
   .org-delta-renderer-root, .org-delta-overlay { position: relative; width: 100%; height: 100%; }
+  .org-delta-visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   .org-delta-minimap { color: #334155; border: 1px solid currentColor; background: rgba(255,255,255,.9); }
   .org-delta-node { border: 2px solid #64748b; border-radius: 8px; background: #fff; }
   .org-delta-node--added, .org-delta-internal--added { border-left: 8px solid #18794e; background-image: repeating-linear-gradient(135deg, transparent 0 7px, rgba(24,121,78,.12) 7px 10px); }
@@ -44,7 +45,7 @@ export const componentStyles = `
     .toolbar > *, .exploration-controls label { flex: 1 1 100%; }
     .toolbar button, .toolbar select, .toolbar input[type='search'] { max-width: 100%; }
   }
-  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0s !important; animation-duration: 0s !important; } }
   @media (forced-colors: active) {
     .chart-shell, header, .details, .org-delta-node, .org-delta-minimap { border-color: CanvasText; }
     .org-delta-node--added, .org-delta-node--removed, .org-delta-node--modified { border-left-color: Highlight; }
