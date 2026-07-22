@@ -5,10 +5,7 @@ import { ConnectorOverlay } from './overlay';
 import type { ActivationHandler, ActivationKind } from './overlay';
 import type { ChartRenderer, RenderNode, RenderView } from './types';
 
-interface D3Node {
-  data: RenderNode;
-  parent?: D3Node;
-}
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
 const SYNTHETIC_ROOT = Symbol('org-delta-chart synthetic root');
 
@@ -17,22 +14,27 @@ interface RendererNode extends RenderNode {
   _expanded?: boolean;
 }
 
+interface D3HierarchyNode {
+  data: RendererNode;
+  parent?: D3HierarchyNode;
+}
+
 interface OrgChartApi {
   container(value: HTMLElement): this;
-  data(value: readonly RenderNode[]): this;
-  nodeId(value: (node: unknown) => string): this;
-  parentNodeId(value: (node: unknown) => string | undefined): this;
-  nodeWidth(value: (node: unknown) => number): this;
-  nodeHeight(value: (node: unknown) => number): this;
-  nodeContent(value: (node: unknown) => string): this;
+  data(value: readonly RendererNode[]): this;
+  nodeId(value: (node: RendererNode) => string): this;
+  parentNodeId(value: (node: RendererNode) => string | undefined): this;
+  nodeWidth(value: (node: D3HierarchyNode) => number): this;
+  nodeHeight(value: (node: D3HierarchyNode) => number): this;
+  nodeContent(value: (node: D3HierarchyNode) => string): this;
   compact(value: boolean): this;
   duration(value: number): this;
   scaleExtent(value: [number, number]): this;
-  minPagingVisibleNodes(value: (node: unknown) => number): this;
+  minPagingVisibleNodes(value: (node: D3HierarchyNode) => number): this;
   onZoom(value: () => void): this;
   onExpandOrCollapse(value: () => void): this;
-  nodeUpdate(value: (this: SVGGElement, node: unknown) => void): this;
-  linkUpdate(value: (this: SVGPathElement, node: unknown) => void): this;
+  nodeUpdate(value: (this: SVGGElement, node: D3HierarchyNode) => void): this;
+  linkUpdate(value: (this: SVGPathElement, node: D3HierarchyNode) => void): this;
   render(): this;
   setExpanded(id: string, expanded: boolean): this;
   setCentered(id: string): this;
@@ -52,30 +54,8 @@ const ACTIVATION_KINDS = new Set<ActivationKind>([
   'change',
 ]);
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function nodeData(value: unknown): RenderNode | undefined {
-  if (!isRecord(value)) return undefined;
-  const data = isRecord(value.data) ? value.data : value;
-  return typeof data.id === 'string' && typeof data.name === 'string'
-    ? (data as unknown as RenderNode)
-    : undefined;
-}
-
-function d3Node(value: unknown): D3Node | undefined {
-  const data = nodeData(value);
-  if (!data || !isRecord(value)) return undefined;
-  const parentValue = value.parent;
-  const parent = parentValue === undefined ? undefined : d3Node(parentValue);
-  return parent ? { data, parent } : { data };
-}
-
-function isSynthetic(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  const data = isRecord(value.data) ? value.data : value;
-  return Reflect.get(data, SYNTHETIC_ROOT) === true;
+function isSynthetic(node: RendererNode | undefined): boolean {
+  return node?.[SYNTHETIC_ROOT] === true;
 }
 
 function rendererData(nodes: readonly RendererNode[]): RendererNode[] {
@@ -119,10 +99,8 @@ function activationAttributes(kind: ActivationKind, id: string): string {
   return `data-activate-kind="${kind}" data-activate-id="${escapeHtml(id)}"`;
 }
 
-function renderNodeContent(value: unknown): string {
-  if (isSynthetic(value)) return '';
-  const node = nodeData(value);
-  if (!node) return '';
+function renderNodeContent({ data: node }: D3HierarchyNode): string {
+  if (isSynthetic(node)) return '';
   const nodeId = escapeHtml(node.id);
   const classes = [
     'org-delta-node',
@@ -156,6 +134,7 @@ export class D3OrgChartRenderer implements ChartRenderer {
   private static readonly LAYOUT_DURATION = 300;
   private readonly chart: OrgChartApi;
   private readonly overlay: ConnectorOverlay;
+  private readonly minimap = document.createElementNS(SVG_NAMESPACE, 'svg');
   private readonly reducedMotion: boolean;
   private readonly resizeObserver: ResizeObserver | undefined;
   private currentView: RenderView | undefined;
@@ -183,15 +162,24 @@ export class D3OrgChartRenderer implements ChartRenderer {
   ) {
     this.reducedMotion = prefersReducedMotion();
     this.overlay = new ConnectorOverlay(host, options.onActivate);
+    this.minimap.classList.add('org-delta-minimap');
+    this.minimap.setAttribute('aria-hidden', 'true');
+    this.minimap.setAttribute('viewBox', '0 0 160 100');
+    this.minimap.style.position = 'absolute';
+    this.minimap.style.right = '0';
+    this.minimap.style.bottom = '0';
+    this.minimap.style.width = '160px';
+    this.minimap.style.height = '100px';
+    this.minimap.style.pointerEvents = 'none';
     this.chart = new OrgChart() as OrgChartApi;
     this.chart
       .container(host)
-      .nodeId((value) => nodeData(value)?.id ?? '')
-      .parentNodeId((value) => nodeData(value)?.parentId)
-      .nodeWidth((value) => isSynthetic(value) ? 1 : 280)
-      .nodeHeight((value) => isSynthetic(value)
+      .nodeId((node) => node.id)
+      .parentNodeId((node) => node.parentId)
+      .nodeWidth(({ data }) => isSynthetic(data) ? 1 : 280)
+      .nodeHeight(({ data }) => isSynthetic(data)
         ? 1
-        : 88 + (nodeData(value)?.internalRows.length ?? 0) * 36)
+        : 88 + data.internalRows.length * 36)
       .nodeContent(renderNodeContent)
       .compact(false)
       .duration(this.reducedMotion ? 0 : D3OrgChartRenderer.LAYOUT_DURATION)
@@ -199,14 +187,12 @@ export class D3OrgChartRenderer implements ChartRenderer {
       .minPagingVisibleNodes(() => 200)
       .onZoom(() => this.scheduleOverlay())
       .onExpandOrCollapse(() => this.scheduleAfterLayout())
-      .nodeUpdate(function (value: unknown): void {
-        if (!isSynthetic(value)) return;
+      .nodeUpdate(function ({ data }: D3HierarchyNode): void {
+        if (!isSynthetic(data)) return;
         this.style.display = 'none';
         this.setAttribute('aria-hidden', 'true');
       })
-      .linkUpdate(function (value: unknown): void {
-        const current = d3Node(value);
-        if (!current) return;
+      .linkUpdate(function (current: D3HierarchyNode): void {
         if (isSynthetic(current.data) || isSynthetic(current.parent?.data)) {
           this.style.display = 'none';
           this.removeAttribute('data-activate-kind');
@@ -283,6 +269,7 @@ export class D3OrgChartRenderer implements ChartRenderer {
     this.host.removeEventListener('keydown', this.keyHandler, true);
     this.chart.clear();
     this.overlay.destroy();
+    this.minimap.remove();
     this.host.replaceChildren();
     this.currentView = undefined;
   }
@@ -293,7 +280,61 @@ export class D3OrgChartRenderer implements ChartRenderer {
       this.frame = undefined;
       if (this.destroyed || !this.currentView) return;
       this.overlay.sync(this.currentView.nodes, this.currentView.relationships);
+      this.syncMinimap(this.currentView);
     });
+  }
+
+  private syncMinimap(view: RenderView): void {
+    const ids = new Set(view.nodes.map(({ id }) => id));
+    const rendered = [...this.host.querySelectorAll<HTMLElement>('[data-node-id]')]
+      .filter((element) => ids.has(element.dataset.nodeId ?? ''))
+      .map((element) => ({
+        id: element.dataset.nodeId!,
+        rect: element.getBoundingClientRect(),
+      }));
+    this.minimap.replaceChildren();
+    if (rendered.length === 0) {
+      this.minimap.style.display = 'none';
+      return;
+    }
+    this.minimap.style.display = '';
+    if (!this.minimap.isConnected) this.host.append(this.minimap);
+
+    const minX = Math.min(...rendered.map(({ rect }) => rect.left));
+    const minY = Math.min(...rendered.map(({ rect }) => rect.top));
+    const maxX = Math.max(...rendered.map(({ rect }) => rect.right));
+    const maxY = Math.max(...rendered.map(({ rect }) => rect.bottom));
+    const scale = Math.min(148 / Math.max(1, maxX - minX), 88 / Math.max(1, maxY - minY));
+    const offsetX = (160 - (maxX - minX) * scale) / 2;
+    const offsetY = (100 - (maxY - minY) * scale) / 2;
+    const points = new Map(rendered.map(({ id, rect }) => [id, {
+      x: offsetX + (rect.left + rect.width / 2 - minX) * scale,
+      y: offsetY + (rect.top + rect.height / 2 - minY) * scale,
+    }]));
+
+    for (const node of view.nodes) {
+      if (node.parentId === undefined) continue;
+      const source = points.get(node.parentId);
+      const target = points.get(node.id);
+      if (!source || !target) continue;
+      const line = document.createElementNS(SVG_NAMESPACE, 'line');
+      line.dataset.minimapLink = `${node.parentId}->${node.id}`;
+      line.setAttribute('x1', String(source.x));
+      line.setAttribute('y1', String(source.y));
+      line.setAttribute('x2', String(target.x));
+      line.setAttribute('y2', String(target.y));
+      line.setAttribute('stroke', 'currentColor');
+      this.minimap.append(line);
+    }
+    for (const [id, point] of points) {
+      const circle = document.createElementNS(SVG_NAMESPACE, 'circle');
+      circle.dataset.minimapNodeId = id;
+      circle.setAttribute('cx', String(point.x));
+      circle.setAttribute('cy', String(point.y));
+      circle.setAttribute('r', '2');
+      circle.setAttribute('fill', 'currentColor');
+      this.minimap.append(circle);
+    }
   }
 
   private scheduleAfterLayout(): void {

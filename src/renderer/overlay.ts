@@ -1,4 +1,4 @@
-import type { RenderNode, RenderRelationship } from './types';
+import type { RenderNode, RenderView } from './types';
 
 export type ActivationKind =
   | 'node'
@@ -84,131 +84,49 @@ interface Anchor {
   id: string;
 }
 
-export class ConnectorOverlay {
-  private svg: SVGSVGElement | undefined;
-  private listenerCleanup: Array<() => void> = [];
-  private readonly originalPosition: string;
-  private readonly positionedHost: boolean;
+function findAnchor(
+  host: HTMLElement,
+  attribute: 'data-node-id' | 'data-internal-id',
+  id: string,
+): HTMLElement | undefined {
+  const selector = `[${attribute}="${escapeSelector(id)}"]`;
+  const element = host.querySelector<HTMLElement>(selector);
+  return element && isVisible(element) ? element : undefined;
+}
 
-  constructor(
-    private readonly host: HTMLElement,
-    private readonly onActivate: ActivationHandler,
-  ) {
-    this.originalPosition = host.style.position;
-    const position = getComputedStyle(host).position;
-    this.positionedHost = position === '' || position === 'static';
-    if (this.positionedHost) host.style.position = 'relative';
+function findLineageAnchor(host: HTMLElement, lineage: readonly string[]): Anchor | undefined {
+  for (const id of lineage) {
+    const element = findAnchor(host, 'data-internal-id', id) ?? findAnchor(host, 'data-node-id', id);
+    if (element) return { element, id };
   }
+  return undefined;
+}
 
-  sync(nodes: readonly RenderNode[], relationships: readonly RenderRelationship[]): void {
-    for (const cleanup of this.listenerCleanup) cleanup();
-    this.listenerCleanup = [];
-    this.svg?.remove();
-    const svg = document.createElementNS(SVG_NAMESPACE, 'svg');
-    svg.classList.add('org-delta-connectors');
-    svg.setAttribute('aria-hidden', 'false');
-    svg.style.position = 'absolute';
-    svg.style.inset = '0';
-    svg.style.overflow = 'visible';
-    svg.style.pointerEvents = 'none';
-    svg.style.width = `${Math.max(this.host.scrollWidth, this.host.clientWidth)}px`;
-    svg.style.height = `${Math.max(this.host.scrollHeight, this.host.clientHeight)}px`;
-    this.host.append(svg);
-    this.svg = svg;
-
-    const hostRect = this.host.getBoundingClientRect();
-    const nodesById = new Map(nodes.map((node) => [node.id, node]));
-    for (const node of nodes) {
-      if (node.connectorSourceId === undefined) continue;
-      const internalSource = this.findAnchor('data-internal-id', node.connectorSourceId);
-      const source = internalSource
-        ? { element: internalSource, id: node.connectorSourceId }
-        : this.findOuterParentAnchor(node.parentId, nodesById);
-      const target = this.findAnchor('data-node-id', node.id);
-      if (!source || !target) continue;
-      const id = `${node.connectorSourceId}->${node.id}`;
-      const aggregated = source.id !== node.connectorSourceId;
-      const path = connectorPath(
-        relativeRect(source.element.getBoundingClientRect(), hostRect, this.host),
-        relativeRect(target.getBoundingClientRect(), hostRect, this.host),
-      );
-      this.appendPathPair(svg, path, 'hierarchy', id, {
-        'data-hierarchy-id': id,
-        'data-connector-source-id': source.id,
-        'data-connector-target-id': node.id,
-        ...(aggregated ? { 'data-aggregated': 'true' } : {}),
-      }, aggregated);
-    }
-
-    for (const relationship of relationships) {
-      const source = this.findLineageAnchor(relationship.sourceAncestors);
-      const target = this.findLineageAnchor(relationship.targetAncestors);
-      if (!source || !target) continue;
-      const aggregated =
-        relationship.aggregated ||
-        source.id !== relationship.sourceAncestors[0] ||
-        target.id !== relationship.targetAncestors[0];
-      if (aggregated && source.id === target.id) continue;
-      const path = relationshipPath(
-        relativeRect(source.element.getBoundingClientRect(), hostRect, this.host),
-        relativeRect(target.element.getBoundingClientRect(), hostRect, this.host),
-      );
-      this.appendPathPair(svg, path, 'relationship', relationship.id, {
-        'data-relationship-id': relationship.id,
-        'data-relationship-source-id': source.id,
-        'data-relationship-target-id': target.id,
-        ...(aggregated ? { 'data-aggregated': 'true' } : {}),
-      }, aggregated, relationship.label);
-    }
+function findOuterParentAnchor(
+  host: HTMLElement,
+  parentId: string | undefined,
+  nodesById: ReadonlyMap<string, RenderNode>,
+): Anchor | undefined {
+  const visited = new Set<string>();
+  let current = parentId;
+  while (current !== undefined && !visited.has(current)) {
+    visited.add(current);
+    const element = findAnchor(host, 'data-node-id', current);
+    if (element) return { element, id: current };
+    current = nodesById.get(current)?.parentId;
   }
+  return undefined;
+}
 
-  destroy(): void {
-    for (const cleanup of this.listenerCleanup) cleanup();
-    this.listenerCleanup = [];
-    this.svg?.remove();
-    this.svg = undefined;
-    if (this.positionedHost) this.host.style.position = this.originalPosition;
-  }
-
-  private findAnchor(attribute: 'data-node-id' | 'data-internal-id', id: string): HTMLElement | undefined {
-    const selector = `[${attribute}="${escapeSelector(id)}"]`;
-    const element = this.host.querySelector<HTMLElement>(selector);
-    return element && isVisible(element) ? element : undefined;
-  }
-
-  private findLineageAnchor(lineage: readonly string[]): Anchor | undefined {
-    for (const id of lineage) {
-      const element =
-        this.findAnchor('data-internal-id', id) ?? this.findAnchor('data-node-id', id);
-      if (element) return { element, id };
-    }
-    return undefined;
-  }
-
-  private findOuterParentAnchor(
-    parentId: string | undefined,
-    nodesById: ReadonlyMap<string, RenderNode>,
-  ): Anchor | undefined {
-    const visited = new Set<string>();
-    let current = parentId;
-    while (current !== undefined && !visited.has(current)) {
-      visited.add(current);
-      const element = this.findAnchor('data-node-id', current);
-      if (element) return { element, id: current };
-      current = nodesById.get(current)?.parentId;
-    }
-    return undefined;
-  }
-
-  private appendPathPair(
-    svg: SVGSVGElement,
-    pathData: string,
-    kind: 'hierarchy' | 'relationship',
-    id: string,
-    attributes: Readonly<Record<string, string>>,
-    aggregated = false,
-    accessibleLabel?: string,
-  ): void {
+function appendPathPair(
+  svg: SVGSVGElement,
+  pathData: string,
+  kind: 'hierarchy' | 'relationship',
+  id: string,
+  attributes: Readonly<Record<string, string>>,
+  aggregated = false,
+  accessibleLabel?: string,
+): void {
     const visible = document.createElementNS(SVG_NAMESPACE, 'path');
     visible.classList.add('org-delta-connector', `org-delta-connector--${kind}`);
     if (aggregated) visible.classList.add('org-delta-connector--aggregated');
@@ -226,29 +144,132 @@ export class ConnectorOverlay {
     hit.setAttribute('stroke-width', '12');
     hit.setAttribute('role', kind === 'relationship' ? 'link' : 'button');
     hit.setAttribute('tabindex', '0');
+    hit.dataset.overlayKind = kind;
+    hit.dataset.overlayId = id;
     if (accessibleLabel !== undefined) hit.setAttribute('aria-label', accessibleLabel);
     hit.style.pointerEvents = 'stroke';
     for (const [name, value] of Object.entries(attributes)) {
       visible.setAttribute(name, value);
       hit.setAttribute(name, value);
     }
-    const activate = (): void => this.onActivate(kind, id, hit);
-    const activateByKeyboard = (event: KeyboardEvent): void => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      event.preventDefault();
-      activate();
-    };
-    hit.addEventListener('click', activate);
-    hit.addEventListener('keydown', activateByKeyboard);
-    this.listenerCleanup.push(() => {
-      hit.removeEventListener('click', activate);
-      hit.removeEventListener('keydown', activateByKeyboard);
-    });
     if (accessibleLabel !== undefined) {
       const title = document.createElementNS(SVG_NAMESPACE, 'title');
       title.textContent = accessibleLabel;
       visible.append(title);
     }
     svg.append(visible, hit);
+}
+
+function overlayTarget(svg: SVGSVGElement, event: Event): SVGPathElement | undefined {
+  const target = event.target;
+  if (!(target instanceof Element)) return undefined;
+  const hit = target.closest<SVGPathElement>('.org-delta-connector-hit');
+  return hit && svg.contains(hit) ? hit : undefined;
+}
+
+export function syncOverlay(
+  svg: SVGSVGElement,
+  host: HTMLElement,
+  view: RenderView,
+  onActivate?: ActivationHandler,
+): void {
+  svg.replaceChildren();
+  svg.classList.add('org-delta-connectors');
+  svg.setAttribute('aria-hidden', 'false');
+  svg.style.position = 'absolute';
+  svg.style.inset = '0';
+  svg.style.overflow = 'visible';
+  svg.style.pointerEvents = 'none';
+  svg.style.width = `${Math.max(host.scrollWidth, host.clientWidth)}px`;
+  svg.style.height = `${Math.max(host.scrollHeight, host.clientHeight)}px`;
+  svg.onclick = onActivate ? (event) => {
+    const hit = overlayTarget(svg, event);
+    const kind = hit?.dataset.overlayKind as 'hierarchy' | 'relationship' | undefined;
+    const id = hit?.dataset.overlayId;
+    if (hit && kind && id !== undefined) onActivate(kind, id, hit);
+  } : null;
+  svg.onkeydown = onActivate ? (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const hit = overlayTarget(svg, event);
+    const kind = hit?.dataset.overlayKind as 'hierarchy' | 'relationship' | undefined;
+    const id = hit?.dataset.overlayId;
+    if (!hit || !kind || id === undefined) return;
+    event.preventDefault();
+    onActivate(kind, id, hit);
+  } : null;
+
+  const hostRect = host.getBoundingClientRect();
+  const nodesById = new Map(view.nodes.map((node) => [node.id, node]));
+  for (const node of view.nodes) {
+    if (node.connectorSourceId === undefined) continue;
+    const internalSource = findAnchor(host, 'data-internal-id', node.connectorSourceId);
+    const source = internalSource
+      ? { element: internalSource, id: node.connectorSourceId }
+      : findOuterParentAnchor(host, node.parentId, nodesById);
+    const target = findAnchor(host, 'data-node-id', node.id);
+    if (!source || !target) continue;
+    const id = `${node.connectorSourceId}->${node.id}`;
+    const aggregated = source.id !== node.connectorSourceId;
+    appendPathPair(svg, connectorPath(
+      relativeRect(source.element.getBoundingClientRect(), hostRect, host),
+      relativeRect(target.getBoundingClientRect(), hostRect, host),
+    ), 'hierarchy', id, {
+      'data-hierarchy-id': id,
+      'data-connector-source-id': source.id,
+      'data-connector-target-id': node.id,
+      ...(aggregated ? { 'data-aggregated': 'true' } : {}),
+    }, aggregated);
+  }
+
+  for (const relationship of view.relationships) {
+    const source = findLineageAnchor(host, relationship.sourceAncestors);
+    const target = findLineageAnchor(host, relationship.targetAncestors);
+    if (!source || !target) continue;
+    const aggregated = relationship.aggregated ||
+      source.id !== relationship.sourceAncestors[0] ||
+      target.id !== relationship.targetAncestors[0];
+    if (aggregated && source.id === target.id) continue;
+    appendPathPair(svg, relationshipPath(
+      relativeRect(source.element.getBoundingClientRect(), hostRect, host),
+      relativeRect(target.element.getBoundingClientRect(), hostRect, host),
+    ), 'relationship', relationship.id, {
+      'data-relationship-id': relationship.id,
+      'data-relationship-source-id': source.id,
+      'data-relationship-target-id': target.id,
+      ...(aggregated ? { 'data-aggregated': 'true' } : {}),
+    }, aggregated, relationship.label);
+  }
+}
+
+export class ConnectorOverlay {
+  private readonly svg = document.createElementNS(SVG_NAMESPACE, 'svg');
+  private readonly originalPosition: string;
+  private readonly positionedHost: boolean;
+
+  constructor(
+    private readonly host: HTMLElement,
+    private readonly onActivate: ActivationHandler,
+  ) {
+    this.originalPosition = host.style.position;
+    const position = getComputedStyle(host).position;
+    this.positionedHost = position === '' || position === 'static';
+    if (this.positionedHost) host.style.position = 'relative';
+  }
+
+  sync(nodes: RenderView['nodes'], relationships: RenderView['relationships']): void {
+    if (!this.svg.isConnected) this.host.append(this.svg);
+    syncOverlay(this.svg, this.host, {
+      nodes,
+      relationships,
+      searchEntries: [],
+      initialExpansionIds: [],
+    }, this.onActivate);
+  }
+
+  destroy(): void {
+    this.svg.onclick = null;
+    this.svg.onkeydown = null;
+    this.svg.remove();
+    if (this.positionedHost) this.host.style.position = this.originalPosition;
   }
 }

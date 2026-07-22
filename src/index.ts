@@ -25,6 +25,7 @@ export type { DetailsItem } from './presentation/notes';
 export type * from './renderer/types';
 export { D3OrgChartRenderer } from './renderer/d3-renderer';
 export type { D3OrgChartRendererOptions } from './renderer/d3-renderer';
+export { syncOverlay } from './renderer/overlay';
 
 if (!customElements.get('org-delta-chart')) {
   customElements.define('org-delta-chart', OrgDeltaChartElement);

@@ -63,7 +63,7 @@ describe('D3OrgChartRenderer with installed d3-org-chart', () => {
     document.body.replaceChildren();
   });
 
-  it('renders multiple roots through an invisible minimal collision-safe synthetic root', () => {
+  it('renders multiple roots through an invisible minimal collision-safe synthetic root', async () => {
     const element = host();
     const renderer = new D3OrgChartRenderer(element, { onActivate: vi.fn() });
 
@@ -85,6 +85,14 @@ describe('D3OrgChartRenderer with installed d3-org-chart', () => {
       [...element.querySelectorAll<SVGPathElement>('path.link')]
         .filter((item) => item.style.display === 'none'),
     ).toHaveLength(3);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const minimap = element.querySelector<SVGSVGElement>('.org-delta-minimap')!;
+    expect([...minimap.querySelectorAll<SVGElement>('[data-minimap-node-id]')]
+      .map(({ dataset }) => dataset.minimapNodeId).sort()).toEqual([
+      '__org_delta_chart_root__',
+      'first',
+      'second',
+    ]);
     renderer.destroy();
   });
 

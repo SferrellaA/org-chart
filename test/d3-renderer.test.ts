@@ -83,6 +83,28 @@ function view(nodes: readonly RenderNode[] = [node()]): RenderView {
   };
 }
 
+function rect(x: number, y: number, width: number, height: number): DOMRect {
+  return {
+    bottom: y + height,
+    height,
+    left: x,
+    right: x + width,
+    top: y,
+    width,
+    x,
+    y,
+    toJSON: () => ({}),
+  };
+}
+
+function renderedNode(host: HTMLElement, id: string, bounds: DOMRect): HTMLElement {
+  const element = document.createElement('article');
+  element.dataset.nodeId = id;
+  element.getBoundingClientRect = () => bounds;
+  host.append(element);
+  return element;
+}
+
 describe('D3OrgChartRenderer', () => {
   let animationFrames: FrameRequestCallback[];
   let resizeCallback: ResizeObserverCallback | undefined;
@@ -124,6 +146,58 @@ describe('D3OrgChartRenderer', () => {
     expect(chart.calls.filter(([name]) => name === 'render')).toHaveLength(2);
     expect(chart.calls.some(([name]) => name === 'minPagingVisibleNodes')).toBe(true);
     expect(chart.calls.some(([name]) => name.toLowerCase().includes('minimap'))).toBe(false);
+  });
+
+  it('draws an aria-hidden noninteractive minimap from rendered real nodes and links', () => {
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () => rect(0, 0, 500, 500);
+    renderedNode(host, 'root', rect(50, 50, 100, 50));
+    renderedNode(host, 'child', rect(300, 300, 100, 50));
+    const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+
+    renderer.render(view([node(), node({ id: 'child', parentId: 'root' })]));
+    animationFrames[0]?.(0);
+
+    const minimap = host.querySelector<SVGSVGElement>('.org-delta-minimap')!;
+    expect(minimap).not.toBeNull();
+    expect(minimap.getAttribute('aria-hidden')).toBe('true');
+    expect(minimap.style.pointerEvents).toBe('none');
+    expect(minimap.querySelectorAll('[data-minimap-node-id]')).toHaveLength(2);
+    expect(minimap.querySelectorAll('[data-minimap-link]')).toHaveLength(1);
+    renderer.destroy();
+    expect(host.querySelector('.org-delta-minimap')).toBeNull();
+  });
+
+  it('updates minimap geometry after resize and hides it when nodes disappear', () => {
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () => rect(0, 0, 500, 500);
+    renderedNode(host, 'root', rect(0, 0, 50, 50));
+    let middleBounds = rect(100, 100, 50, 50);
+    const middle = renderedNode(host, 'middle', middleBounds);
+    middle.getBoundingClientRect = () => middleBounds;
+    renderedNode(host, 'far', rect(400, 400, 50, 50));
+    const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+    const nodes = [
+      node(),
+      node({ id: 'middle', parentId: 'root' }),
+      node({ id: 'far', parentId: 'root' }),
+    ];
+    renderer.render(view(nodes));
+    animationFrames[0]?.(0);
+    const minimap = host.querySelector<SVGSVGElement>('.org-delta-minimap')!;
+    const before = minimap.querySelector('[data-minimap-node-id="middle"]')?.getAttribute('cx');
+
+    middleBounds = rect(250, 100, 50, 50);
+    resizeCallback?.([], {} as ResizeObserver);
+    animationFrames[1]?.(1);
+    const after = minimap.querySelector('[data-minimap-node-id="middle"]')?.getAttribute('cx');
+    expect(after).not.toBe(before);
+
+    renderer.render(view([]));
+    animationFrames[2]?.(2);
+    expect(minimap.style.display).toBe('none');
+    expect(minimap.childNodes).toHaveLength(0);
+    renderer.destroy();
   });
 
   it('provides raw-data id accessors as required by d3-org-chart', () => {

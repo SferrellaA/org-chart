@@ -3,8 +3,10 @@ import {
   ConnectorOverlay,
   connectorPath,
   relationshipPath,
+  syncOverlay,
 } from '../src/renderer/overlay';
-import type { RenderNode, RenderRelationship } from '../src/renderer/types';
+import type { RenderNode, RenderRelationship, RenderView } from '../src/renderer/types';
+import { syncOverlay as publicSyncOverlay } from '../src/index';
 
 function rect(x: number, y: number, width: number, height: number): DOMRect {
   return {
@@ -64,6 +66,10 @@ function anchor(
 }
 
 describe('overlay geometry', () => {
+  it('exports the stateless overlay synchronizer publicly', () => {
+    expect(publicSyncOverlay).toBe(syncOverlay);
+  });
+
   it('routes internal connectors from source bottom center to target top center', () => {
     expect(connectorPath(rect(10, 10, 80, 20), rect(200, 100, 80, 40))).toBe(
       'M 50 30 C 50 65, 240 65, 240 100',
@@ -81,6 +87,32 @@ describe('overlay geometry', () => {
 });
 
 describe('ConnectorOverlay', () => {
+  it('supports stateless repeated synchronization without retaining detached targets', () => {
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () => rect(0, 0, 500, 500);
+    anchor(host, 'data-node-id', 'source', rect(0, 0, 100, 50));
+    anchor(host, 'data-node-id', 'target', rect(200, 200, 100, 50));
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    host.append(svg);
+    const activate = vi.fn();
+    const view: RenderView = {
+      nodes: [],
+      relationships: [relationship(['source'], ['target'])],
+      searchEntries: [],
+      initialExpansionIds: [],
+    };
+
+    syncOverlay(svg, host, view, activate);
+    const detached = svg.querySelector<SVGPathElement>('.org-delta-connector-hit')!;
+    syncOverlay(svg, host, view, activate);
+    detached.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    svg.querySelector<SVGPathElement>('.org-delta-connector-hit')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(activate).toHaveBeenCalledOnce();
+    expect(svg.querySelectorAll('[data-relationship-id="rel"]')).toHaveLength(2);
+  });
+
   it('omits relationships whose endpoint lineage has no visible anchor', () => {
     const host = document.createElement('div');
     host.getBoundingClientRect = () => rect(0, 0, 500, 500);
