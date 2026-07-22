@@ -5,7 +5,12 @@ import {
   relationshipPath,
   syncOverlay,
 } from '../src/renderer/overlay';
-import type { RenderNode, RenderRelationship, RenderView } from '../src/renderer/types';
+import {
+  encodeHierarchyActivationId,
+  type RenderNode,
+  type RenderRelationship,
+  type RenderView,
+} from '../src/renderer/types';
 import { syncOverlay as publicSyncOverlay } from '../src/index';
 
 function rect(x: number, y: number, width: number, height: number): DOMRect {
@@ -191,7 +196,8 @@ describe('ConnectorOverlay', () => {
 
     overlay.sync([node('child', 'internal')], []);
 
-    const path = host.querySelector<SVGPathElement>('[data-hierarchy-id="internal->child"]');
+    const path = host.querySelector<SVGPathElement>('[data-hierarchy-id]');
+    expect(path?.dataset.hierarchyId).toBe(encodeHierarchyActivationId('internal', 'child'));
     expect(path?.getAttribute('d')).toBe('M 60 40 C 60 110, 240 110, 240 180');
     expect(path?.getAttribute('stroke')).toBe('currentColor');
   });
@@ -216,7 +222,7 @@ describe('ConnectorOverlay', () => {
 
     overlay.sync([owner, child], []);
 
-    const paths = host.querySelectorAll<SVGPathElement>('[data-hierarchy-id="hr->child"]');
+    const paths = host.querySelectorAll<SVGPathElement>('[data-hierarchy-id]');
     const visible = paths[0]!;
     const hit = paths[1]!;
     expect(hit.getAttribute('aria-label')).toBe('HR Office contains reporting line to Child Office');
@@ -236,7 +242,7 @@ describe('ConnectorOverlay', () => {
 
     overlay.sync([node('child', 'unknown')], []);
 
-    const paths = host.querySelectorAll<SVGPathElement>('[data-hierarchy-id="unknown->child"]');
+    const paths = host.querySelectorAll<SVGPathElement>('[data-hierarchy-id]');
     expect(paths[1]?.hasAttribute('tabindex')).toBe(false);
     expect(paths[1]?.hasAttribute('role')).toBe(false);
     expect(paths[1]?.hasAttribute('aria-label')).toBe(false);
@@ -253,9 +259,7 @@ describe('ConnectorOverlay', () => {
 
     overlay.sync([node('outer'), child], []);
 
-    const path = host.querySelector<SVGPathElement>(
-      '[data-hierarchy-id="hidden-internal->child"]',
-    );
+    const path = host.querySelector<SVGPathElement>('[data-hierarchy-id]');
     expect(path?.dataset.connectorSourceId).toBe('outer');
     expect(path?.dataset.aggregated).toBe('true');
     expect(path?.classList.contains('org-delta-connector--aggregated')).toBe(true);

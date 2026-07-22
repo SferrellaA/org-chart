@@ -1,4 +1,4 @@
-import type { RenderNode, RenderView } from './types';
+import { encodeHierarchyActivationId, type RenderNode, type RenderView } from './types';
 
 export type ActivationKind =
   | 'node'
@@ -249,7 +249,7 @@ export function syncOverlay(
       : findOuterParentAnchor(host, node.parentId, nodesById);
     const target = findAnchor(host, 'data-node-id', node.id);
     if (!source || !target) continue;
-    const id = `${node.connectorSourceId}->${node.id}`;
+    const id = encodeHierarchyActivationId(node.connectorSourceId, node.id);
     const aggregated = source.id !== node.connectorSourceId;
     const sourceName = plainText(internalNames.get(node.connectorSourceId) ?? '');
     const targetName = plainText(node.name);

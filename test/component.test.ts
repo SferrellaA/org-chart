@@ -6,6 +6,7 @@ import {
   setRendererFactoryForTests,
   type RendererCallbacks,
 } from '../src/index';
+import { ConnectorOverlay } from '../src/renderer/overlay';
 import {
   decodeHierarchyActivationId,
   encodeHierarchyActivationId,
@@ -385,6 +386,61 @@ describe('OrgDeltaChartElement', () => {
     renderers[0]!.callbacks.onActivate('hierarchy', activationId, trigger);
 
     expect(element.shadowRoot!.querySelector('aside h2')!.textContent).toBe('Child -> Parent');
+  });
+
+  it('opens hierarchy details from an internal overlay connector with delimiter-bearing IDs', async () => {
+    const parentId = 'internal->parent';
+    const childId = 'child->office';
+    const documentData = cloneValidDocument();
+    documentData.nodes = {
+      root: { name: 'Root' },
+      [parentId]: { name: 'Internal Parent' },
+      [childId]: { name: 'Child' },
+    };
+    documentData.snapshots = [{
+      id: 'current',
+      label: 'Current',
+      nodes: { root: {}, [parentId]: {}, [childId]: {} },
+      hierarchy: [
+        { child: parentId, parent: 'root', relationship: 'internal' },
+        { child: childId, parent: parentId, relationship: 'subordinate' },
+      ],
+    }];
+    documentData.proposals = [];
+    documentData.relationships = [];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
+    setRendererFactoryForTests((container, callbacks) => {
+      let overlay: ConnectorOverlay | undefined;
+      return {
+        render(view): void {
+          const source = document.createElement('div');
+          source.dataset.internalId = parentId;
+          source.getBoundingClientRect = () => new DOMRect(10, 10, 100, 40);
+          const target = document.createElement('div');
+          target.dataset.nodeId = childId;
+          target.getBoundingClientRect = () => new DOMRect(200, 200, 100, 40);
+          container.append(source, target);
+          overlay = new ConnectorOverlay(container, callbacks.onActivate);
+          overlay.sync(view.nodes, view.relationships);
+        },
+        reveal(): void {},
+        fit(): void {},
+        destroy(): void { overlay?.destroy(); },
+      };
+    });
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+
+    const connector = element.shadowRoot!.querySelector<SVGPathElement>(
+      '.org-delta-connector-hit[data-hierarchy-id]',
+    )!;
+    expect(connector.dataset.hierarchyId).toBe(encodeHierarchyActivationId(parentId, childId));
+    connector.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(element.shadowRoot!.querySelector('aside h2')!.textContent)
+      .toBe('Child -> Internal Parent');
   });
 
   it('defensively omits non-HTTP sources from details', () => {
