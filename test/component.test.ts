@@ -17,6 +17,8 @@ import { cloneValidDocument } from './fixtures';
 
 class FakeRenderer implements ChartRenderer {
   readonly views: RenderView[] = [];
+  readonly revealed: string[] = [];
+  fitCalls = 0;
   destroyed = false;
 
   constructor(readonly callbacks: RendererCallbacks) {}
@@ -25,8 +27,8 @@ class FakeRenderer implements ChartRenderer {
     this.views.push(view);
   }
 
-  reveal(): void {}
-  fit(): void {}
+  reveal(id: string): void { this.revealed.push(id); }
+  fit(): void { this.fitCalls += 1; }
 
   destroy(): void {
     this.destroyed = true;
@@ -324,6 +326,198 @@ describe('OrgDeltaChartElement', () => {
     expect(view.nodes.find((node) => node.id === 'usaid')!.diffKind).toBe('modified');
     expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent)
       .toContain('1 modified');
+  });
+
+  it('renders view buttons through four views and a labeled select above four', async () => {
+    const documentData = cloneValidDocument();
+    documentData.snapshots.push(
+      { ...structuredClone(documentData.snapshots[0]!), id: 'second', label: 'Second' },
+      { ...structuredClone(documentData.snapshots[0]!), id: 'third', label: 'Third' },
+      { ...structuredClone(documentData.snapshots[0]!), id: 'fourth', label: 'Fourth' },
+    );
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+
+    expect(element.shadowRoot!.querySelectorAll('[data-view-id]')).toHaveLength(0);
+    expect(element.shadowRoot!.querySelector<HTMLSelectElement>('[data-view-select]')!.options)
+      .toHaveLength(5);
+
+    documentData.snapshots.pop();
+    element.remove();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
+    const fourViewElement = new OrgDeltaChartElement();
+    fourViewElement.setAttribute('src', '/chart.json');
+    document.body.append(fourViewElement);
+    await settle();
+    const buttons = fourViewElement.shadowRoot!.querySelectorAll('[data-view-id]');
+    expect(buttons).toHaveLength(4);
+    expect(buttons[0]!.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('selects a proposal with its immediate base and honors compare-to override', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(cloneValidDocument())));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+
+    (element.shadowRoot!.querySelector('[data-view-id="proposal-a"]') as HTMLButtonElement).click();
+    expect(element.shadowRoot!.querySelector('[data-selection-status]')!.textContent)
+      .toContain('Selected: Shared leadership');
+    expect(element.shadowRoot!.querySelector('[data-selection-status]')!.textContent)
+      .toContain('Compared with: Current organization');
+    expect(renderers[0]!.views).toHaveLength(2);
+
+    element.setAttribute('compare-to', 'proposal-a');
+    expect(element.shadowRoot!.querySelector('[data-selection-status]')!.textContent)
+      .toContain('Compared with: Shared leadership');
+  });
+
+  it('toggles display options, fits, and reveals hidden internal search results', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(cloneValidDocument())));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    element.setAttribute('show-internal', 'false');
+    document.body.append(element);
+    await settle();
+
+    const relationships = element.shadowRoot!.querySelector<HTMLInputElement>('[data-show-relationships]')!;
+    relationships.click();
+    expect(renderers[0]!.views.at(-1)!.relationships).toHaveLength(0);
+    element.shadowRoot!.querySelector<HTMLInputElement>('[data-show-internal]')!.click();
+    expect(renderers[0]!.views.at(-1)!.nodes.find((node) => node.id === 'state')!.internalRows)
+      .toHaveLength(2);
+
+    element.shadowRoot!.querySelector<HTMLInputElement>('[data-show-internal]')!.click();
+    const search = element.shadowRoot!.querySelector<HTMLInputElement>('[data-search]')!;
+    search.value = 'State Human Resources';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(renderers[0]!.revealed).toContain('state-hr');
+    (element.shadowRoot!.querySelector('[data-search-result="state-hr"]') as HTMLButtonElement).click();
+    expect(renderers[0]!.views.at(-1)!.nodes.find((node) => node.id === 'state')!.internalRows
+      .map((row) => row.id)).toEqual(['state-hq', 'state-hr']);
+    expect(renderers[0]!.revealed).toContain('state-hr');
+
+    (element.shadowRoot!.querySelector('[data-search-clear]') as HTMLButtonElement).click();
+    expect(renderers[0]!.views.at(-1)!.nodes.find((node) => node.id === 'state')!.internalRows)
+      .toHaveLength(0);
+    (element.shadowRoot!.querySelector('[data-fit]') as HTMLButtonElement).click();
+    expect(renderers[0]!.fitCalls).toBe(1);
+  });
+
+  it('applies patch dependencies and conflicts and explains locked and disabled groups', async () => {
+    const documentData = cloneValidDocument();
+    documentData.proposals[0]!.patchGroups = [
+      { id: 'required', label: 'Required base', patches: [] },
+      {
+        id: 'choice', label: 'Choice', requires: ['required'], patches: [],
+        conflictsWith: ['alternate'], note: '<script>Choice details</script>',
+        sources: [{ label: 'Source', url: 'https://example.com/choice' }],
+      },
+      { id: 'alternate', label: 'Alternate', conflictsWith: ['choice'], patches: [] },
+      { id: 'locked', label: 'Locked', locked: true, conflictsWith: ['unavailable'], patches: [] },
+      { id: 'unavailable', label: 'Unavailable', conflictsWith: ['locked'], patches: [] },
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    element.setAttribute('initial-view', 'proposal-a');
+    document.body.append(element);
+    await settle();
+
+    const locked = element.shadowRoot!.querySelector<HTMLInputElement>('[data-patch-group="locked"]')!;
+    expect(locked.checked).toBe(true);
+    expect(locked.disabled).toBe(true);
+    expect(element.shadowRoot!.getElementById(locked.getAttribute('aria-describedby')!)!.textContent)
+      .toContain('locked on');
+    const unavailable = element.shadowRoot!.querySelector<HTMLInputElement>('[data-patch-group="unavailable"]')!;
+    expect(unavailable.disabled).toBe(true);
+    expect(element.shadowRoot!.getElementById(unavailable.getAttribute('aria-describedby')!)!.textContent)
+      .toContain('conflicts with locked group');
+
+    element.shadowRoot!.querySelector<HTMLInputElement>('[data-patch-group="choice"]')!.click();
+    expect(element.shadowRoot!.querySelector<HTMLInputElement>('[data-patch-group="required"]')!.checked)
+      .toBe(true);
+    element.shadowRoot!.querySelector<HTMLInputElement>('[data-patch-group="alternate"]')!.click();
+    expect(element.shadowRoot!.querySelector<HTMLInputElement>('[data-patch-group="choice"]')!.checked)
+      .toBe(false);
+
+    const about = element.shadowRoot!.querySelector<HTMLButtonElement>('[data-patch-group-about="choice"]')!;
+    const before = element.shadowRoot!.querySelector<HTMLInputElement>('[data-patch-group="choice"]')!.checked;
+    about.click();
+    expect(element.shadowRoot!.querySelector('aside h2')!.textContent).toBe('Choice');
+    expect(element.shadowRoot!.querySelector('aside script')).toBeNull();
+    expect(element.shadowRoot!.querySelector<HTMLInputElement>('[data-patch-group="choice"]')!.checked)
+      .toBe(before);
+  });
+
+  it('preserves patch choices per proposal and does not duplicate rerender handlers', async () => {
+    const documentData = cloneValidDocument();
+    documentData.proposals.push({
+      id: 'proposal-b', label: 'Other proposal', base: 'current',
+      patchGroups: [{ id: 'other', label: 'Other changes', patches: [] }],
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+
+    element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="proposal-a"]')!.click();
+    element.shadowRoot!.querySelector<HTMLInputElement>('[data-patch-group="shared-leadership-group"]')!
+      .click();
+    expect(element.shadowRoot!.querySelector<HTMLInputElement>('[data-patch-group="shared-leadership-group"]')!.checked)
+      .toBe(false);
+    element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="proposal-b"]')!.click();
+    element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="proposal-a"]')!.click();
+    expect(element.shadowRoot!.querySelector<HTMLInputElement>('[data-patch-group="shared-leadership-group"]')!.checked)
+      .toBe(false);
+
+    const before = renderers[0]!.views.length;
+    element.shadowRoot!.querySelector<HTMLInputElement>('[data-show-relationships]')!.click();
+    expect(renderers[0]!.views).toHaveLength(before + 1);
+  });
+
+  it('keeps invalid proposal options selectable and recovers without refetching', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const documentData = cloneValidDocument();
+    documentData.proposals[0]!.patchGroups![0]!.patches[0] = {
+      type: 'set-node', node: 'missing', value: { name: 'Invalid' },
+    };
+    const fetchMock = vi.fn().mockResolvedValue(response(documentData));
+    vi.stubGlobal('fetch', fetchMock);
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+
+    element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="proposal-a"]')!.click();
+    expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent).toContain('is invalid');
+    element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="current"]')!.click();
+    expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent).toContain('ready');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(renderers).toHaveLength(1);
+  });
+
+  it('opens internal, relationship, and change details activations', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(cloneValidDocument())));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    element.setAttribute('initial-view', 'proposal-a');
+    document.body.append(element);
+    await settle();
+    const trigger = document.createElement('button');
+    element.shadowRoot!.querySelector('.canvas')!.append(trigger);
+
+    renderers[0]!.callbacks.onActivate('internal', 'state-hq', trigger);
+    expect(element.shadowRoot!.querySelector('aside h2')!.textContent).toBe('State Headquarters');
+    renderers[0]!.callbacks.onActivate('relationship', 'shared-leadership', trigger);
+    expect(element.shadowRoot!.querySelector('aside h2')!.textContent).toBe('Shared leadership');
+    renderers[0]!.callbacks.onActivate('change', 'usaid', trigger);
+    expect(element.shadowRoot!.querySelector('aside h2')!.textContent).toBe('USAID');
   });
 
   it('opens activation details safely and restores focus when closed', async () => {

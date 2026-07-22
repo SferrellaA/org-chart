@@ -1,6 +1,6 @@
 import { diffCharts, type ChartDiff } from '../model/diff';
 import { resolveView } from '../model/resolve';
-import { initialPatchSelection } from '../model/selection';
+import { initialPatchSelection, togglePatchGroup, type PatchSelection } from '../model/selection';
 import type { OrgDocument, Proposal, ResolvedChart } from '../model/types';
 import { validateDocument } from '../model/validate';
 import { buildRenderView } from '../presentation/build-view';
@@ -8,13 +8,15 @@ import {
   changeDetails,
   hierarchyDetails,
   nodeDetails,
+  patchGroupDetails,
   relationshipDetails,
   type DetailsItem,
 } from '../presentation/notes';
 import { D3OrgChartRenderer } from '../renderer/d3-renderer';
 import type { ActivationHandler, ActivationKind } from '../renderer/overlay';
-import { decodeHierarchyActivationId, type ChartRenderer } from '../renderer/types';
+import { decodeHierarchyActivationId, type ChartRenderer, type RenderView } from '../renderer/types';
 import { closeDetailsPanel, renderDetailsPanel } from './details-panel';
+import { renderControls, type ControlsHandlers } from './controls';
 import { installStyles } from './styles';
 import { createTemplate, type ComponentTemplate } from './template';
 
@@ -38,7 +40,12 @@ function booleanAttribute(element: Element, name: string): boolean {
   return value === null || !['false', '0', 'no'].includes(value.trim().toLowerCase());
 }
 
-function selectionsFor(document: OrgDocument, viewId: string): string[] {
+function selectionsFor(
+  document: OrgDocument,
+  viewId: string,
+  selections: ReadonlyMap<string, PatchSelection>,
+  remembered: boolean,
+): string[] {
   const proposals = new Map(document.proposals.map((proposal) => [proposal.id, proposal]));
   const chain: Proposal[] = [];
   const seen = new Set<string>();
@@ -48,11 +55,21 @@ function selectionsFor(document: OrgDocument, viewId: string): string[] {
     chain.unshift(proposal);
     proposal = proposals.get(proposal.base);
   }
-  return chain.flatMap((item) => initialPatchSelection(item).selected);
+  return chain.flatMap((item) =>
+    (remembered ? selections.get(item.id) : undefined)?.selected ?? initialPatchSelection(item).selected
+  );
 }
 
-function resolve(document: OrgDocument, viewId: string): ResolvedChart {
-  return resolveView(document, { viewId, selectedGroups: selectionsFor(document, viewId) });
+function resolve(
+  document: OrgDocument,
+  viewId: string,
+  selections: ReadonlyMap<string, PatchSelection>,
+  remembered: boolean,
+): ResolvedChart {
+  return resolveView(document, {
+    viewId,
+    selectedGroups: selectionsFor(document, viewId, selections, remembered),
+  });
 }
 
 export class OrgDeltaChartElement extends HTMLElement {
@@ -73,6 +90,12 @@ export class OrgDeltaChartElement extends HTMLElement {
   private selected: ResolvedChart | undefined;
   private diff: ChartDiff | undefined;
   private activationVersion = 0;
+  private selectedViewId: string | undefined;
+  private showInternal = true;
+  private showRelationships = true;
+  private readonly patchSelections = new Map<string, PatchSelection>();
+  private readonly revealedInternalIds = new Set<string>();
+  private searchQuery = '';
 
   constructor() {
     super();
@@ -95,7 +118,12 @@ export class OrgDeltaChartElement extends HTMLElement {
   attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
     if (!this.isConnected || oldValue === newValue) return;
     if (name === 'src') this.load();
-    else if (this.documentData) this.renderDocument();
+    else if (this.documentData) {
+      if (name === 'initial-view') this.selectedViewId = newValue ?? undefined;
+      if (name === 'show-internal') this.showInternal = booleanAttribute(this, name);
+      if (name === 'show-relationships') this.showRelationships = booleanAttribute(this, name);
+      this.updateChart();
+    }
   }
 
   private load(): void {
@@ -132,7 +160,13 @@ export class OrgDeltaChartElement extends HTMLElement {
         }
         this.documentData = validation.value;
         this.viewErrors = validation.viewErrors;
-        this.renderDocument();
+        this.selectedViewId = this.getAttribute('initial-view') ?? undefined;
+        this.showInternal = booleanAttribute(this, 'show-internal');
+        this.showRelationships = booleanAttribute(this, 'show-relationships');
+        this.patchSelections.clear();
+        this.revealedInternalIds.clear();
+        this.searchQuery = '';
+        this.updateChart();
       })
       .catch((error: unknown) => {
         if (request.signal.aborted || version !== this.requestVersion) return;
@@ -159,16 +193,18 @@ export class OrgDeltaChartElement extends HTMLElement {
     this.viewErrors = new Map();
     this.template.title.textContent = 'Organization chart';
     this.template.shell.setAttribute('aria-label', 'Organization chart');
+    this.template.toolbar.replaceChildren();
+    this.template.selectionStatus.replaceChildren();
   }
 
-  private renderDocument(): void {
+  private updateChart(): void {
     const documentData = this.documentData;
     if (!documentData) return;
     const allIds = new Set([
       ...documentData.snapshots.map(({ id }) => id),
       ...documentData.proposals.map(({ id }) => id),
     ]);
-    const requested = this.getAttribute('initial-view');
+    const requested = this.selectedViewId ?? this.getAttribute('initial-view');
     if (requested !== null && !allIds.has(requested)) {
       this.showViewError(`Unable to display chart: view "${requested}" does not exist.`, requested);
       return;
@@ -206,13 +242,13 @@ export class OrgDeltaChartElement extends HTMLElement {
         ? selectedProposal.base
         : selectedId;
     try {
-      const selected = resolve(documentData, selectedId);
-      const baseline = resolve(documentData, baselineId);
+      const selected = resolve(documentData, selectedId, this.patchSelections, true);
+      const baseline = resolve(documentData, baselineId, this.patchSelections, false);
       const diff = diffCharts(baseline, selected);
       const view = buildRenderView(selected, diff, {
-        showInternal: booleanAttribute(this, 'show-internal'),
-        showRelationships: booleanAttribute(this, 'show-relationships'),
-        revealedInternalIds: new Set(),
+        showInternal: this.showInternal,
+        showRelationships: this.showRelationships,
+        revealedInternalIds: this.revealedInternalIds,
       });
       if (!this.renderer) {
         const activationVersion = this.activationVersion;
@@ -227,13 +263,18 @@ export class OrgDeltaChartElement extends HTMLElement {
       }
       this.selected = selected;
       this.diff = diff;
+      this.selectedViewId = selectedId;
       this.template.title.textContent = documentData.title;
       this.template.shell.setAttribute('aria-label', documentData.title);
       const label = documentData.snapshots.find(({ id }) => id === selectedId)?.label
         ?? documentData.proposals.find(({ id }) => id === selectedId)?.label
         ?? selectedId;
       const summary = diff.summary;
-      this.template.status.textContent = `${documentData.title}: ${label} ready, ${summary.added} added, ${summary.removed} removed, ${summary.modified} modified.`;
+      const baselineLabel = documentData.snapshots.find(({ id }) => id === baselineId)?.label
+        ?? documentData.proposals.find(({ id }) => id === baselineId)?.label
+        ?? baselineId;
+      this.renderCurrentControls(selectedId, label, baselineLabel, view.searchEntries);
+      this.template.status.textContent = `${documentData.title}: ${label} ready, ${summary.added} added, ${summary.removed} removed, ${summary.modified} modified, ${summary.unchanged} unchanged.`;
       this.renderer.render(view);
       this.dispatchEvent(new CustomEvent('org-delta-chart-ready', {
         detail: { title: documentData.title, viewId: selectedId, baselineId, summary: { ...summary } },
@@ -242,6 +283,103 @@ export class OrgDeltaChartElement extends HTMLElement {
       this.showViewError('Unable to display chart.', error);
     }
   }
+
+  private renderCurrentControls(
+    selectedId: string,
+    selectedLabel: string,
+    baselineLabel: string,
+    searchEntries: RenderView['searchEntries'],
+  ): void {
+    const documentData = this.documentData!;
+    const proposal = documentData.proposals.find(({ id }) => id === selectedId);
+    let patchSelection: PatchSelection | undefined;
+    if (proposal) {
+      patchSelection = this.patchSelections.get(proposal.id) ?? initialPatchSelection(proposal);
+      this.patchSelections.set(proposal.id, patchSelection);
+    }
+    renderControls(this.template.toolbar, {
+      views: [
+        ...documentData.snapshots.map(({ id, label }) => ({
+          id, label, invalid: this.viewErrors.has(id),
+        })),
+        ...documentData.proposals.map(({ id, label }) => ({
+          id, label, invalid: this.viewErrors.has(id),
+        })),
+      ],
+      selectedViewId: selectedId,
+      selectedLabel,
+      baselineLabel,
+      patchGroups: proposal?.patchGroups ?? [],
+      ...(patchSelection ? { patchSelection } : {}),
+      showInternal: this.showInternal,
+      showRelationships: this.showRelationships,
+      searchEntries,
+      searchQuery: this.searchQuery,
+    }, this.controlHandlers);
+    const status = this.template.toolbar.querySelector('[data-selection-status]');
+    this.template.selectionStatus.replaceChildren(status ?? '');
+  }
+
+  private readonly controlHandlers: ControlsHandlers = {
+    selectView: (id) => {
+      this.selectedViewId = id;
+      this.revealedInternalIds.clear();
+      this.searchQuery = '';
+      this.updateChart();
+    },
+    togglePatchGroup: (id, checked) => {
+      const proposal = this.documentData?.proposals.find(({ id: proposalId }) =>
+        proposalId === this.selectedViewId
+      );
+      if (!proposal) return;
+      const current = this.patchSelections.get(proposal.id) ?? initialPatchSelection(proposal);
+      this.patchSelections.set(proposal.id, togglePatchGroup(proposal, current, id, checked));
+      this.updateChart();
+    },
+    showPatchGroup: (group, trigger) => {
+      renderDetailsPanel(this.template.details, patchGroupDetails(group), trigger);
+    },
+    setShowInternal: (checked) => {
+      this.showInternal = checked;
+      this.updateChart();
+    },
+    setShowRelationships: (checked) => {
+      this.showRelationships = checked;
+      this.updateChart();
+    },
+    setSearchQuery: (query) => {
+      this.searchQuery = query;
+      this.updateChart();
+      const normalized = query.trim().toLocaleLowerCase();
+      const exact = [...(this.selected?.nodes.values() ?? [])].find((node) =>
+        node.id.toLocaleLowerCase() === normalized
+        || node.name.toLocaleLowerCase() === normalized
+        || node.aliases?.some((alias) => alias.toLocaleLowerCase() === normalized)
+      );
+      if (exact) this.controlHandlers.revealSearchResult(exact.id);
+      const input = this.template.toolbar.querySelector<HTMLInputElement>('[data-search]');
+      input?.focus();
+      input?.setSelectionRange(query.length, query.length);
+    },
+    revealSearchResult: (id) => {
+      this.revealedInternalIds.add(id);
+      let ancestor = this.selected?.parents.get(id)?.parent;
+      while (ancestor && this.selected?.parents.get(ancestor)?.relationship === 'internal') {
+        this.revealedInternalIds.add(ancestor);
+        ancestor = this.selected.parents.get(ancestor)?.parent;
+      }
+      this.updateChart();
+      this.renderer?.reveal(id);
+      const node = this.selected?.nodes.get(id);
+      this.template.status.textContent = node ? `Revealed ${node.name}.` : `Revealed ${id}.`;
+    },
+    clearSearch: () => {
+      this.searchQuery = '';
+      this.revealedInternalIds.clear();
+      this.updateChart();
+    },
+    fit: () => this.renderer?.fit(),
+  };
 
   private readonly activate: ActivationHandler = (kind, id, trigger) => {
     const item = this.detailsFor(kind, id);
@@ -282,7 +420,20 @@ export class OrgDeltaChartElement extends HTMLElement {
   }
 
   private showViewError(message: string, detail: unknown): void {
-    this.clearView();
+    closeDetailsPanel(this.template.details);
+    if (this.documentData) {
+      const selectedId = this.selectedViewId ?? this.getAttribute('initial-view') ?? '';
+      const selectedLabel = this.documentData.snapshots.find(({ id }) => id === selectedId)?.label
+        ?? this.documentData.proposals.find(({ id }) => id === selectedId)?.label
+        ?? selectedId;
+      const baselineId = this.getAttribute('compare-to')
+        ?? this.documentData.proposals.find(({ id }) => id === selectedId)?.base
+        ?? selectedId;
+      const baselineLabel = this.documentData.snapshots.find(({ id }) => id === baselineId)?.label
+        ?? this.documentData.proposals.find(({ id }) => id === baselineId)?.label
+        ?? baselineId;
+      this.renderCurrentControls(selectedId, selectedLabel, baselineLabel, []);
+    }
     this.reportError(message, detail);
   }
 

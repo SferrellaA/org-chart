@@ -2,6 +2,7 @@ export interface ComponentTemplate {
   shell: HTMLElement;
   title: HTMLHeadingElement;
   toolbar: HTMLElement;
+  selectionStatus: HTMLElement;
   status: HTMLElement;
   canvas: HTMLElement;
   details: HTMLElement;
@@ -18,7 +19,9 @@ export function createTemplate(root: ShadowRoot): ComponentTemplate {
   const toolbar = document.createElement('div');
   toolbar.className = 'toolbar';
   toolbar.setAttribute('aria-label', 'Chart controls');
-  header.append(title, toolbar);
+  const selectionStatus = document.createElement('div');
+  selectionStatus.className = 'selection-status-host';
+  header.append(title, selectionStatus, toolbar);
 
   const status = document.createElement('div');
   status.className = 'status';
@@ -37,5 +40,5 @@ export function createTemplate(root: ShadowRoot): ComponentTemplate {
   workspace.append(canvas, details);
   shell.append(header, status, workspace);
   root.append(shell);
-  return { shell, title, toolbar, status, canvas, details };
+  return { shell, title, toolbar, selectionStatus, status, canvas, details };
 }

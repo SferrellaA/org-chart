@@ -7,6 +7,8 @@ export type {
   RendererFactory,
 } from './component/org-delta-chart';
 export { closeDetailsPanel, renderDetailsPanel } from './component/details-panel';
+export { renderControls } from './component/controls';
+export type { ControlView, ControlsHandlers, ControlsState } from './component/controls';
 
 export { validateDocument, validateOrgDocument } from './model/validate';
 export { ResolutionError, resolveView } from './model/resolve';
