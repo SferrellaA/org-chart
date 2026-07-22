@@ -4,7 +4,8 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import exampleDocument from '../examples/state-department.json';
-import { initialPatchSelection } from '../src/model/selection';
+import { renderControls, type ControlsHandlers } from '../src/component/controls';
+import { initialPatchSelection, togglePatchGroup } from '../src/model/selection';
 import { resolveView } from '../src/model/resolve';
 import { validateDocument } from '../src/model/validate';
 import { applyViewerQuery, readViewerSource, startViewer } from '../src/viewer';
@@ -98,6 +99,79 @@ describe('State Department example', () => {
         })
       ).not.toThrow();
     }
+  });
+
+  it('offers three enabled patch groups that readers can toggle', () => {
+    const validation = validateDocument(exampleDocument);
+    expect(validation.ok).toBe(true);
+    if (!validation.ok) return;
+    const proposal = validation.value.proposals.find(({ id }) => id === 'spin-out-proposal');
+    expect(proposal?.patchGroups).toHaveLength(3);
+    expect(proposal?.patchGroups?.every((group) => !group.locked)).toBe(true);
+    if (!proposal) return;
+
+    const initial = initialPatchSelection(proposal);
+    expect(initial.disabled.size).toBe(0);
+    const controls = document.createElement('div');
+    const noOp = () => undefined;
+    renderControls(controls, {
+      views: [],
+      selectedViewId: proposal.id,
+      selectedLabel: proposal.label,
+      baselineLabel: proposal.base,
+      patchGroups: proposal.patchGroups ?? [],
+      patchSelection: initial,
+      showInternal: true,
+      showRelationships: true,
+      searchEntries: [],
+    }, {
+      selectView: noOp,
+      togglePatchGroup: noOp,
+      showPatchGroup: noOp,
+      setShowInternal: noOp,
+      setShowRelationships: noOp,
+      revealSearchResult: noOp,
+      clearSearch: noOp,
+      fit: noOp,
+    } satisfies ControlsHandlers);
+    const choices = controls.querySelectorAll<HTMLInputElement>('input[data-patch-group]');
+    expect(choices).toHaveLength(3);
+    expect([...choices].every((choice) => !choice.disabled)).toBe(true);
+    for (const group of proposal.patchGroups ?? []) {
+      const checked = !initial.selected.includes(group.id);
+      const toggled = togglePatchGroup(proposal, initial, group.id, checked);
+      expect(toggled.error).toBeUndefined();
+      expect(toggled.selected.includes(group.id)).toBe(checked);
+    }
+  });
+});
+
+describe('example pages', () => {
+  it('keeps the direct component page minimal', () => {
+    const root = resolve(import.meta.dirname, '..');
+    const html = readFileSync(resolve(root, 'examples/state-department.html'), 'utf8');
+    const page = new DOMParser().parseFromString(html, 'text/html');
+
+    expect([...page.body.children].map(({ tagName }) => tagName)).toEqual([
+      'ORG-DELTA-CHART',
+      'SCRIPT',
+    ]);
+    expect(page.querySelector('org-delta-chart')?.getAttribute('src')).toBe(
+      './state-department.json',
+    );
+    expect(page.querySelector('iframe')).toBeNull();
+  });
+
+  it('provides a separate iframe page with a root-relative chart source', () => {
+    const root = resolve(import.meta.dirname, '..');
+    const html = readFileSync(resolve(root, 'examples/iframe.html'), 'utf8');
+    const page = new DOMParser().parseFromString(html, 'text/html');
+    const iframe = page.querySelector('iframe');
+
+    expect(iframe?.getAttribute('src')).toBe(
+      '/viewer.html?src=/examples/state-department.json',
+    );
+    expect(iframe?.getAttribute('title')).toBeTruthy();
   });
 });
 

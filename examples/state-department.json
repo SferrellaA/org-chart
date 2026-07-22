@@ -74,8 +74,7 @@
           "id": "rename-lab",
           "label": "Rename the fictional Policy Lab",
           "defaultSelected": true,
-          "locked": true,
-          "note": "Required illustrative naming change.",
+          "note": "Optional illustrative naming change; the spin-out option requires it.",
           "patches": [{ "type": "set-node", "node": "policy-lab", "value": { "name": "Policy Innovation Office" }, "semantic": "rename", "relatedNodes": ["state-hq"] }]
         },
         {
