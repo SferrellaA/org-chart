@@ -13,6 +13,7 @@ import { applyViewerQuery, readViewerSource, startViewer } from '../src/viewer';
 describe('viewer query', () => {
   it.each([
     ['/examples/chart.json', '/examples/chart.json'],
+    ['chart.json', 'chart.json'],
     ['./chart.json', './chart.json'],
     ['../chart.json', '../chart.json'],
     ['http://example.test/chart.json', 'http://example.test/chart.json'],
@@ -24,7 +25,6 @@ describe('viewer query', () => {
   it.each([
     '',
     '?src=',
-    '?src=chart.json',
     '?src=%2F%2Fevil.example%2Fchart.json',
     '?src=javascript%3Aalert(1)',
     '?src=data%3Aapplication%2Fjson%2C%7B%7D',
@@ -56,18 +56,37 @@ describe('viewer query', () => {
       });
   });
 
-  it('rejects invalid known parameters without injecting markup', () => {
-    const chart = document.createElement('org-delta-chart');
-    const attack = '<img src=x onerror=alert(1)>';
+  it.each([
+    'View with spaces',
+    '提案',
+    'parent/child',
+    'before -> after',
+    `quoted "view"`,
+    '<img src=x onerror=alert(1)>',
+  ])(
+    'copies schema-valid view ID %s without interpreting it as markup',
+    (id) => {
+      const chart = document.createElement('org-delta-chart');
 
-    expect(() =>
       applyViewerQuery(
-        `?src=%2Fchart.json&initial-view=${encodeURIComponent(attack)}`,
+        `?src=%2Fchart.json&initial-view=${encodeURIComponent(id)}` +
+          `&compare-to=${encodeURIComponent(id)}`,
         chart,
-      )
-    ).toThrow(/initial-view/i);
-    expect(chart.querySelector('img')).toBeNull();
-    expect(document.querySelector('img')).toBeNull();
+      );
+
+      expect(chart.getAttribute('initial-view')).toBe(id);
+      expect(chart.getAttribute('compare-to')).toBe(id);
+      expect(chart.children).toHaveLength(0);
+    },
+  );
+
+  it.each(['initial-view', 'compare-to'])('rejects empty and control-character %s values', (name) => {
+    for (const value of ['', 'view\nname']) {
+      const chart = document.createElement('org-delta-chart');
+      expect(() =>
+        applyViewerQuery(`?src=%2Fchart.json&${name}=${encodeURIComponent(value)}`, chart)
+      ).toThrow(new RegExp(name));
+    }
   });
 
   it('sets the source before registering the custom element', async () => {
@@ -143,6 +162,10 @@ describe('State Department example', () => {
       expect(toggled.error).toBeUndefined();
       expect(toggled.selected.includes(group.id)).toBe(checked);
     }
+    const spinOut = proposal.patchGroups?.find(({ id }) => id === 'spin-out-lab');
+    expect(spinOut?.sources).toEqual([
+      { label: 'Illustrative source', url: 'https://example.com/' },
+    ]);
   });
 });
 

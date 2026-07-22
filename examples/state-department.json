@@ -84,7 +84,7 @@
           "requires": ["rename-lab"],
           "conflictsWith": ["retain-internal-lab"],
           "note": "Illustrative structural alternative, not a real proposal.",
-          "sources": [{ "label": "Demo methodology", "url": "https://example.com/org-delta-chart-demo" }],
+          "sources": [{ "label": "Illustrative source", "url": "https://example.com/" }],
           "patches": [{ "type": "set-parent", "node": "policy-lab", "parent": "state", "relationship": "subordinate", "note": "Fictional spin-out for demonstration.", "semantic": "spin-out", "relatedNodes": ["state-hq", "state"] }]
         },
         {

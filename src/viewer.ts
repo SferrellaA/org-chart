@@ -27,13 +27,13 @@ export function readViewerSource(search: string | URLSearchParams): string {
   if (source.startsWith('//')) {
     throw new Error('Viewer query parameter "src" must not be protocol-relative.');
   }
-  if (source.startsWith('/') || source.startsWith('./') || source.startsWith('../')) {
-    return source;
+  let url: URL;
+  try {
+    url = new URL(source, 'https://viewer.invalid/');
+  } catch {
+    throw new Error('Viewer query parameter "src" must be a valid URL.');
   }
-  if (/^https?:\/\//iu.test(source)) {
-    const url = new URL(source);
-    if (url.protocol === 'http:' || url.protocol === 'https:') return source;
-  }
+  if (url.protocol === 'http:' || url.protocol === 'https:') return source;
   throw new Error('Viewer query parameter "src" must be a relative, HTTP, or HTTPS URL.');
 }
 
@@ -42,8 +42,8 @@ function validatedParameter(name: string, value: string): string {
     if (!/^(?:true|false|1|0|yes|no)$/iu.test(value)) {
       throw new Error(`Viewer query parameter "${name}" must be a boolean value.`);
     }
-  } else if (!/^[a-z0-9._:-]+$/iu.test(value)) {
-    throw new Error(`Viewer query parameter "${name}" contains invalid characters.`);
+  } else if (/[\u0000-\u001f\u007f]/u.test(value)) {
+    throw new Error(`Viewer query parameter "${name}" contains control characters.`);
   }
   return value;
 }
