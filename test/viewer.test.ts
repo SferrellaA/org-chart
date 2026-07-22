@@ -81,7 +81,7 @@ describe('viewer query', () => {
   );
 
   it.each(['initial-view', 'compare-to'])('rejects empty and control-character %s values', (name) => {
-    for (const value of ['', 'view\nname']) {
+    for (const value of ['', 'view\u0000name', 'view\u001fname', 'view\u007fname']) {
       const chart = document.createElement('org-delta-chart');
       expect(() =>
         applyViewerQuery(`?src=%2Fchart.json&${name}=${encodeURIComponent(value)}`, chart)

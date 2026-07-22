@@ -10,7 +10,7 @@
     "title": { "type": "string", "minLength": 1 },
     "nodes": {
       "type": "object",
-      "propertyNames": { "minLength": 1 },
+      "propertyNames": { "$ref": "#/$defs/id" },
       "additionalProperties": { "$ref": "#/$defs/nodeDefinition" }
     },
     "snapshots": {
@@ -32,6 +32,11 @@
     "presentation": { "$ref": "#/$defs/presentation" }
   },
   "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+    },
     "source": {
       "type": "object",
       "required": ["label", "url"],
@@ -122,8 +127,8 @@
       "required": ["child", "parent", "relationship"],
       "additionalProperties": false,
       "properties": {
-        "child": { "type": "string", "minLength": 1 },
-        "parent": { "type": "string", "minLength": 1 },
+        "child": { "$ref": "#/$defs/id" },
+        "parent": { "$ref": "#/$defs/id" },
         "relationship": { "enum": ["internal", "subordinate"] },
         "note": { "type": "string" },
         "sources": { "$ref": "#/$defs/sources" }
@@ -134,10 +139,10 @@
       "required": ["id", "type", "source", "target", "label"],
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
+        "id": { "$ref": "#/$defs/id" },
         "type": { "type": "string", "minLength": 1 },
-        "source": { "type": "string", "minLength": 1 },
-        "target": { "type": "string", "minLength": 1 },
+        "source": { "$ref": "#/$defs/id" },
+        "target": { "$ref": "#/$defs/id" },
         "label": { "type": "string", "minLength": 1 },
         "note": { "type": "string" },
         "sources": { "$ref": "#/$defs/sources" }
@@ -149,8 +154,8 @@
       "additionalProperties": false,
       "properties": {
         "type": { "type": "string", "minLength": 1 },
-        "source": { "type": "string", "minLength": 1 },
-        "target": { "type": "string", "minLength": 1 },
+        "source": { "$ref": "#/$defs/id" },
+        "target": { "$ref": "#/$defs/id" },
         "label": { "type": "string", "minLength": 1 },
         "note": { "type": "string" },
         "sources": { "$ref": "#/$defs/sources" }
@@ -163,7 +168,7 @@
       "properties": {
         "nodes": {
           "type": "object",
-          "propertyNames": { "minLength": 1 },
+          "propertyNames": { "$ref": "#/$defs/id" },
           "additionalProperties": { "$ref": "#/$defs/nodeState" }
         },
         "hierarchy": {
@@ -177,11 +182,11 @@
       "required": ["id", "label", "nodes", "hierarchy"],
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
+        "id": { "$ref": "#/$defs/id" },
         "label": { "type": "string", "minLength": 1 },
         "nodes": {
           "type": "object",
-          "propertyNames": { "minLength": 1 },
+          "propertyNames": { "$ref": "#/$defs/id" },
           "additionalProperties": { "$ref": "#/$defs/nodeState" }
         },
         "hierarchy": {
@@ -194,7 +199,7 @@
     "patchSemantic": { "type": "string", "minLength": 1 },
     "patchRelatedNodes": {
         "type": "array",
-        "items": { "type": "string", "minLength": 1 },
+        "items": { "$ref": "#/$defs/id" },
         "uniqueItems": true
     },
     "addNodePatch": {
@@ -203,7 +208,7 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "add-node" },
-        "node": { "type": "string", "minLength": 1 },
+        "node": { "$ref": "#/$defs/id" },
         "value": { "$ref": "#/$defs/nodeState" },
         "note": { "$ref": "#/$defs/patchNote" },
         "sources": { "$ref": "#/$defs/sources" },
@@ -217,7 +222,7 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "remove-node" },
-        "node": { "type": "string", "minLength": 1 },
+        "node": { "$ref": "#/$defs/id" },
         "note": { "$ref": "#/$defs/patchNote" },
         "sources": { "$ref": "#/$defs/sources" },
         "semantic": { "$ref": "#/$defs/patchSemantic" },
@@ -230,7 +235,7 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "set-node" },
-        "node": { "type": "string", "minLength": 1 },
+        "node": { "$ref": "#/$defs/id" },
         "value": { "$ref": "#/$defs/nodeState" },
         "note": { "$ref": "#/$defs/patchNote" },
         "sources": { "$ref": "#/$defs/sources" },
@@ -244,8 +249,8 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "set-parent" },
-        "node": { "type": "string", "minLength": 1 },
-        "parent": { "type": "string", "minLength": 1 },
+        "node": { "$ref": "#/$defs/id" },
+        "parent": { "$ref": "#/$defs/id" },
         "relationship": { "enum": ["internal", "subordinate"] },
         "note": { "$ref": "#/$defs/patchNote" },
         "sources": { "$ref": "#/$defs/sources" },
@@ -259,7 +264,7 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "remove-parent" },
-        "node": { "type": "string", "minLength": 1 },
+        "node": { "$ref": "#/$defs/id" },
         "note": { "$ref": "#/$defs/patchNote" },
         "sources": { "$ref": "#/$defs/sources" },
         "semantic": { "$ref": "#/$defs/patchSemantic" },
@@ -285,7 +290,7 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "remove-relationship" },
-        "relationship": { "type": "string", "minLength": 1 },
+        "relationship": { "$ref": "#/$defs/id" },
         "note": { "$ref": "#/$defs/patchNote" },
         "sources": { "$ref": "#/$defs/sources" },
         "semantic": { "$ref": "#/$defs/patchSemantic" },
@@ -298,7 +303,7 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "set-relationship" },
-        "relationship": { "type": "string", "minLength": 1 },
+        "relationship": { "$ref": "#/$defs/id" },
         "value": { "$ref": "#/$defs/partialRelationship" },
         "note": { "$ref": "#/$defs/patchNote" },
         "sources": { "$ref": "#/$defs/sources" },
@@ -323,19 +328,19 @@
       "required": ["id", "label", "patches"],
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
+        "id": { "$ref": "#/$defs/id" },
         "label": { "type": "string", "minLength": 1 },
         "patches": { "type": "array", "items": { "$ref": "#/$defs/patch" } },
         "defaultSelected": { "type": "boolean" },
         "locked": { "type": "boolean" },
         "requires": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 },
+          "items": { "$ref": "#/$defs/id" },
           "uniqueItems": true
         },
         "conflictsWith": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 },
+          "items": { "$ref": "#/$defs/id" },
           "uniqueItems": true
         },
         "note": { "type": "string" },
@@ -347,9 +352,9 @@
       "required": ["id", "label", "base"],
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
+        "id": { "$ref": "#/$defs/id" },
         "label": { "type": "string", "minLength": 1 },
-        "base": { "type": "string", "minLength": 1 },
+        "base": { "$ref": "#/$defs/id" },
         "snapshot": { "$ref": "#/$defs/snapshotState" },
         "patches": { "type": "array", "items": { "$ref": "#/$defs/patch" } },
         "patchGroups": {
@@ -363,11 +368,11 @@
       "required": ["id", "label", "nodes"],
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
+        "id": { "$ref": "#/$defs/id" },
         "label": { "type": "string", "minLength": 1 },
         "nodes": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 },
+          "items": { "$ref": "#/$defs/id" },
           "uniqueItems": true
         },
         "note": { "type": "string" },
@@ -386,7 +391,7 @@
         "initialExpansionDepth": { "type": "integer", "minimum": 0 },
         "focusNodes": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 },
+          "items": { "$ref": "#/$defs/id" },
           "uniqueItems": true
         }
       }

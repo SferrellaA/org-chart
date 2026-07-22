@@ -4,6 +4,24 @@ import { validateDocument } from '../src/model/validate';
 import type { OrgDocument, Proposal } from '../src/model/types';
 import { cloneValidDocument, validDocument, type DeepMutable } from './fixtures';
 
+function renameUsaid(document: DeepMutable<OrgDocument>, id: string): void {
+  document.nodes[id] = document.nodes.usaid!;
+  delete document.nodes.usaid;
+  for (const snapshot of document.snapshots) {
+    snapshot.nodes[id] = snapshot.nodes.usaid!;
+    delete snapshot.nodes.usaid;
+    for (const edge of snapshot.hierarchy) {
+      if (edge.child === 'usaid') edge.child = id;
+      if (edge.parent === 'usaid') edge.parent = id;
+    }
+  }
+  const patch = document.proposals[0]!.patchGroups![0]!.patches[0]!;
+  if (!('node' in patch)) throw new Error('Expected node patch in fixture');
+  patch.node = id;
+  patch.relatedNodes = ['state'];
+  document.relationships![0]!.target = id;
+}
+
 describe('validateDocument', () => {
   it('accepts the reusable valid document without view errors', () => {
     expect(validateDocument(validDocument)).toEqual({
@@ -19,6 +37,56 @@ describe('validateDocument', () => {
 
     expect(validateDocument(document).ok).toBe(true);
   });
+
+  it.each(['ID with spaces', '組織/部門', `quoted "ID" -> next`])(
+    'accepts printable stable IDs and matching references: %s',
+    (id) => {
+      const document = cloneValidDocument();
+      renameUsaid(document, `${id} node`);
+      document.snapshots[0]!.id = `${id} snapshot`;
+      document.proposals[0]!.base = `${id} snapshot`;
+
+      expect(validateDocument(document)).toEqual({
+        ok: true,
+        value: document,
+        viewErrors: new Map(),
+      });
+    },
+  );
+
+  it.each(['\u0000', '\u001f', '\u007f'])(
+    'rejects U+%s in every stable ID category and matching references',
+    (control) => {
+      const documents: DeepMutable<OrgDocument>[] = [];
+
+      const node = cloneValidDocument();
+      renameUsaid(node, `bad${control}node`);
+      documents.push(node);
+
+      const snapshot = cloneValidDocument();
+      snapshot.snapshots[0]!.id = `bad${control}snapshot`;
+      snapshot.proposals[0]!.base = `bad${control}snapshot`;
+      documents.push(snapshot);
+
+      const proposal = cloneValidDocument();
+      proposal.proposals[0]!.id = `bad${control}proposal`;
+      documents.push(proposal);
+
+      const relationship = cloneValidDocument();
+      relationship.relationships![0]!.id = `bad${control}relationship`;
+      documents.push(relationship);
+
+      const patchGroup = cloneValidDocument();
+      patchGroup.proposals[0]!.patchGroups![0]!.id = `bad${control}group`;
+      documents.push(patchGroup);
+
+      const zone = cloneValidDocument();
+      zone.zones = [{ id: `bad${control}zone`, label: 'Zone', nodes: ['state'] }];
+      documents.push(zone);
+
+      for (const document of documents) expect(validateDocument(document).ok).toBe(false);
+    },
+  );
 
   it('accepts proposal snapshot replacements', () => {
     const document = cloneValidDocument();
