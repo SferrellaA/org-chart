@@ -16,7 +16,7 @@ import { D3OrgChartRenderer } from '../renderer/d3-renderer';
 import type { ActivationHandler, ActivationKind } from '../renderer/overlay';
 import { decodeHierarchyActivationId, type ChartRenderer, type RenderView } from '../renderer/types';
 import { closeDetailsPanel, renderDetailsPanel } from './details-panel';
-import { renderControls, type ControlsHandlers } from './controls';
+import { cleanupControls, renderControls, type ControlsHandlers } from './controls';
 import { installStyles } from './styles';
 import { createTemplate, type ComponentTemplate } from './template';
 
@@ -197,6 +197,7 @@ export class OrgDeltaChartElement extends HTMLElement {
 
   private clearVisualization(): void {
     this.clearView();
+    cleanupControls(this.template.toolbar);
     this.documentData = undefined;
     this.viewErrors = new Map();
     this.template.title.textContent = 'Organization chart';

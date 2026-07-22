@@ -2,6 +2,14 @@ import type { PatchSelection } from '../model/selection';
 import type { PatchGroup, Source } from '../model/types';
 import type { SearchEntry } from '../renderer/types';
 
+const pendingChangeCommits = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
+
+export function cleanupControls(container: HTMLElement): void {
+  const pending = pendingChangeCommits.get(container);
+  if (pending !== undefined) clearTimeout(pending);
+  pendingChangeCommits.delete(container);
+}
+
 export interface ControlView {
   id: string;
   label: string;
@@ -73,6 +81,7 @@ export function renderControls(
   state: ControlsState,
   handlers: ControlsHandlers,
 ): void {
+  cleanupControls(container);
   const root = container.getRootNode();
   const activeElement = root instanceof ShadowRoot ? root.activeElement : document.activeElement;
   const active = activeElement instanceof HTMLElement && container.contains(activeElement)
@@ -257,6 +266,7 @@ export function renderControls(
       identify(result, 'search-result', entry.id);
       result.textContent = entry.label;
       result.addEventListener('click', () => {
+        cleanupControls(container);
         lastCommitted = `${search.value.trim().toLocaleLowerCase()}\0${entry.id}`;
         handlers.revealSearchResult(entry.id);
       });
@@ -281,12 +291,26 @@ export function renderControls(
     handlers.revealSearchResult(exact[0]!.id);
     return true;
   };
+  const scheduleExactCommit = (): void => {
+    if (!search.isConnected || !container.contains(search)) return;
+    cleanupControls(container);
+    const pending = setTimeout(() => {
+      if (pendingChangeCommits.get(container) !== pending) return;
+      pendingChangeCommits.delete(container);
+      if (container.isConnected) commitExact();
+    }, 0);
+    pendingChangeCommits.set(container, pending);
+  };
   search.addEventListener('input', filterSearch);
-  search.addEventListener('change', commitExact);
+  search.addEventListener('change', scheduleExactCommit);
   search.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && commitExact()) event.preventDefault();
+    if (event.key === 'Enter') {
+      cleanupControls(container);
+      if (commitExact()) event.preventDefault();
+    }
   });
   clear.addEventListener('click', () => {
+    cleanupControls(container);
     search.value = '';
     filterSearch();
     handlers.clearSearch();

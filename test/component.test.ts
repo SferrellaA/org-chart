@@ -398,6 +398,7 @@ describe('OrgDeltaChartElement', () => {
     search.dispatchEvent(new Event('input', { bubbles: true }));
     expect(renderers[0]!.views).toHaveLength(renderCount);
     search.dispatchEvent(new Event('change', { bubbles: true }));
+    await settle();
     expect(renderers[0]!.revealed).toContain('state');
     (element.shadowRoot!.querySelector('[data-search-result="state-hr"]') as HTMLButtonElement).click();
     expect(renderers[0]!.views.at(-1)!.nodes.find((node) => node.id === 'state')!.internalRows
@@ -623,6 +624,95 @@ describe('OrgDeltaChartElement', () => {
     search.dispatchEvent(new Event('change', { bubbles: true }));
     expect(renderer.views).toHaveLength(2);
     expect(renderer.revealed).toEqual(['org-10']);
+  });
+
+  it('lets Clear cancel a pending exact change commit', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(cloneValidDocument())));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+    const renderer = renderers[0]!;
+    const search = element.shadowRoot!.querySelector<HTMLInputElement>('[data-search]')!;
+    search.value = 'State Human Resources';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    const clear = element.shadowRoot!.querySelector<HTMLButtonElement>('[data-search-clear]')!;
+
+    search.dispatchEvent(new Event('change', { bubbles: true }));
+    clear.click();
+    await settle();
+
+    expect(renderer.views).toHaveLength(2);
+    expect(renderer.revealed).toEqual([]);
+  });
+
+  it('lets a result click cancel the pending exact change and reveal once', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(cloneValidDocument())));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+    const renderer = renderers[0]!;
+    const search = element.shadowRoot!.querySelector<HTMLInputElement>('[data-search]')!;
+    search.value = 'State Human Resources';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    const result = element.shadowRoot!.querySelector<HTMLButtonElement>(
+      '[data-search-result="state-hr"]',
+    )!;
+
+    search.dispatchEvent(new Event('change', { bubbles: true }));
+    result.click();
+    await settle();
+
+    expect(renderer.views).toHaveLength(2);
+    expect(renderer.revealed).toEqual(['state']);
+  });
+
+  it('commits an exact Tab blur once after the current event turn', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(cloneValidDocument())));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+    const renderer = renderers[0]!;
+    const search = element.shadowRoot!.querySelector<HTMLInputElement>('[data-search]')!;
+    search.value = 'State Human Resources';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+
+    search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    search.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(renderer.views).toHaveLength(1);
+    await settle();
+
+    expect(renderer.views).toHaveLength(2);
+    expect(renderer.revealed).toEqual(['state']);
+  });
+
+  it('cancels pending search commits when controls rerender or disconnect', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(cloneValidDocument())));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+    const renderer = renderers[0]!;
+    const schedule = (): void => {
+      const search = element.shadowRoot!.querySelector<HTMLInputElement>('[data-search]')!;
+      search.value = 'State Human Resources';
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      search.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    schedule();
+    element.shadowRoot!.querySelector<HTMLInputElement>('[data-show-relationships]')!.click();
+    await settle();
+    expect(renderer.views).toHaveLength(2);
+    expect(renderer.revealed).toEqual([]);
+
+    schedule();
+    element.remove();
+    await settle();
+    expect(renderer.views).toHaveLength(2);
+    expect(renderer.revealed).toEqual([]);
   });
 
   it('preserves focused view, display, and patch controls across rerenders', async () => {
