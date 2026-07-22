@@ -13,7 +13,7 @@ import {
 } from '../presentation/notes';
 import { D3OrgChartRenderer } from '../renderer/d3-renderer';
 import type { ActivationHandler, ActivationKind } from '../renderer/overlay';
-import type { ChartRenderer } from '../renderer/types';
+import { decodeHierarchyActivationId, type ChartRenderer } from '../renderer/types';
 import { closeDetailsPanel, renderDetailsPanel } from './details-panel';
 import { installStyles } from './styles';
 import { createTemplate, type ComponentTemplate } from './template';
@@ -72,6 +72,7 @@ export class OrgDeltaChartElement extends HTMLElement {
   private viewErrors: ReadonlyMap<string, readonly string[]> = new Map();
   private selected: ResolvedChart | undefined;
   private diff: ChartDiff | undefined;
+  private activationVersion = 0;
 
   constructor() {
     super();
@@ -88,9 +89,7 @@ export class OrgDeltaChartElement extends HTMLElement {
     this.request?.abort();
     this.request = undefined;
     this.requestVersion += 1;
-    this.renderer?.destroy();
-    this.renderer = undefined;
-    closeDetailsPanel(this.template.details);
+    this.clearVisualization();
   }
 
   attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
@@ -102,7 +101,7 @@ export class OrgDeltaChartElement extends HTMLElement {
   private load(): void {
     this.request?.abort();
     this.request = undefined;
-    this.documentData = undefined;
+    this.clearVisualization();
     const src = this.getAttribute('src');
     if (!src) {
       this.showError('Unable to load chart: src is required.', new Error('Missing src attribute'));
@@ -144,26 +143,62 @@ export class OrgDeltaChartElement extends HTMLElement {
       });
   }
 
+  private clearVisualization(): void {
+    this.activationVersion += 1;
+    this.renderer?.destroy();
+    this.renderer = undefined;
+    this.template.canvas.replaceChildren();
+    this.selected = undefined;
+    this.diff = undefined;
+    this.documentData = undefined;
+    this.viewErrors = new Map();
+    closeDetailsPanel(this.template.details);
+    this.template.title.textContent = 'Organization chart';
+    this.template.shell.setAttribute('aria-label', 'Organization chart');
+  }
+
   private renderDocument(): void {
     const documentData = this.documentData;
     if (!documentData) return;
-    const validIds = new Set([
+    const allIds = new Set([
       ...documentData.snapshots.map(({ id }) => id),
-      ...documentData.proposals.filter(({ id }) => !this.viewErrors.has(id)).map(({ id }) => id),
+      ...documentData.proposals.map(({ id }) => id),
     ]);
     const requested = this.getAttribute('initial-view');
-    const selectedId = requested && validIds.has(requested)
-      ? requested
-      : documentData.snapshots[0]?.id;
+    if (requested !== null && !allIds.has(requested)) {
+      this.showError(`Unable to display chart: view "${requested}" does not exist.`, requested);
+      return;
+    }
+    if (requested !== null && this.viewErrors.has(requested)) {
+      const errors = this.viewErrors.get(requested)!;
+      this.showError(
+        `Unable to display chart: view "${requested}" is invalid. ${errors.join(' ')}`,
+        errors,
+      );
+      return;
+    }
+    const selectedId = requested ?? documentData.snapshots[0]?.id;
     if (!selectedId) {
       this.showError('Unable to display chart: no valid view.', this.viewErrors);
       return;
     }
     const selectedProposal = documentData.proposals.find(({ id }) => id === selectedId);
     const comparison = this.getAttribute('compare-to');
-    const baselineId = comparison && validIds.has(comparison)
+    if (comparison !== null && !allIds.has(comparison)) {
+      this.showError(`Unable to display chart: baseline "${comparison}" does not exist.`, comparison);
+      return;
+    }
+    if (comparison !== null && this.viewErrors.has(comparison)) {
+      const errors = this.viewErrors.get(comparison)!;
+      this.showError(
+        `Unable to display chart: baseline "${comparison}" is invalid. ${errors.join(' ')}`,
+        errors,
+      );
+      return;
+    }
+    const baselineId = comparison !== null
       ? comparison
-      : selectedProposal && validIds.has(selectedProposal.base)
+      : selectedProposal && allIds.has(selectedProposal.base)
         ? selectedProposal.base
         : selectedId;
     try {
@@ -176,7 +211,12 @@ export class OrgDeltaChartElement extends HTMLElement {
         revealedInternalIds: new Set(),
       });
       if (!this.renderer) {
-        const callbacks: RendererCallbacks = { onActivate: this.activate };
+        const activationVersion = this.activationVersion;
+        const callbacks: RendererCallbacks = {
+          onActivate: (kind, id, trigger) => {
+            if (activationVersion === this.activationVersion) this.activate(kind, id, trigger);
+          },
+        };
         this.renderer = rendererFactory
           ? rendererFactory(this.template.canvas, callbacks)
           : new D3OrgChartRenderer(this.template.canvas, callbacks);
@@ -212,9 +252,9 @@ export class OrgDeltaChartElement extends HTMLElement {
       return node ? nodeDetails(node) : undefined;
     }
     if (kind === 'hierarchy') {
-      const separator = id.indexOf('->');
-      const parentId = separator < 0 ? '' : id.slice(0, separator);
-      const childId = separator < 0 ? '' : id.slice(separator + 2);
+      const hierarchyIds = decodeHierarchyActivationId(id);
+      if (!hierarchyIds) return undefined;
+      const [parentId, childId] = hierarchyIds;
       const child = chart.nodes.get(childId);
       const parent = chart.nodes.get(parentId);
       const edge = chart.parents.get(childId);
@@ -233,6 +273,7 @@ export class OrgDeltaChartElement extends HTMLElement {
   }
 
   private showError(message: string, detail: unknown): void {
+    this.clearVisualization();
     this.template.status.textContent = message;
     console.error(`[org-delta-chart] ${message}`, detail);
     this.dispatchEvent(new CustomEvent('org-delta-chart-error', { detail: { message } }));

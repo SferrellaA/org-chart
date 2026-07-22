@@ -3,7 +3,12 @@
 import { OrgChart } from 'd3-org-chart';
 import { ConnectorOverlay } from './overlay';
 import type { ActivationHandler, ActivationKind } from './overlay';
-import type { ChartRenderer, RenderNode, RenderView } from './types';
+import {
+  encodeHierarchyActivationId,
+  type ChartRenderer,
+  type RenderNode,
+  type RenderView,
+} from './types';
 import type { DiffKind } from '../model/diff';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -312,7 +317,7 @@ export class D3OrgChartRenderer implements ChartRenderer {
         this.setAttribute('stroke', 'currentColor');
         this.setAttribute('stroke-width', '2');
         this.dataset.activateKind = 'hierarchy';
-        this.dataset.activateId = `${parentId}->${current.data.id}`;
+        this.dataset.activateId = encodeHierarchyActivationId(parentId, current.data.id);
         this.setAttribute('role', 'button');
         this.setAttribute('tabindex', '0');
         const label = `${current.parent!.data.name} hierarchy to ${current.data.name}`;

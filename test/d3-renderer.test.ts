@@ -536,7 +536,7 @@ describe('D3OrgChartRenderer', () => {
     });
 
     expect(normal.dataset.activateKind).toBe('hierarchy');
-    expect(normal.dataset.activateId).toBe('root->child');
+    expect(normal.dataset.activateId).toBe(JSON.stringify(['root', 'child']));
     expect(normal.getAttribute('tabindex')).toBe('0');
     expect(normal.getAttribute('stroke')).toBe('currentColor');
     expect(normal.getAttribute('stroke-width')).toBe('2');

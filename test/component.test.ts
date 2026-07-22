@@ -6,7 +6,12 @@ import {
   setRendererFactoryForTests,
   type RendererCallbacks,
 } from '../src/index';
-import type { ChartRenderer, RenderView } from '../src/renderer/types';
+import {
+  decodeHierarchyActivationId,
+  encodeHierarchyActivationId,
+  type ChartRenderer,
+  type RenderView,
+} from '../src/renderer/types';
 import { cloneValidDocument } from './fixtures';
 
 class FakeRenderer implements ChartRenderer {
@@ -141,6 +146,40 @@ describe('OrgDeltaChartElement', () => {
     expect(element.shadowRoot!.querySelector('h1')!.textContent).toBe('US government organizations');
   });
 
+  it('clears a successful chart immediately when a replacement source fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const failed = deferred<Response>();
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(response(cloneValidDocument()))
+      .mockReturnValueOnce(failed.promise));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/good.json');
+    document.body.append(element);
+    await settle();
+    const staleCallbacks = renderers[0]!.callbacks;
+    const trigger = document.createElement('button');
+    element.shadowRoot!.querySelector('.canvas')!.append(trigger);
+    staleCallbacks.onActivate('node', 'state', trigger);
+    expect(element.shadowRoot!.querySelector('aside')!.hidden).toBe(false);
+
+    element.setAttribute('src', '/bad.json');
+    expect(renderers[0]!.destroyed).toBe(true);
+    expect(element.shadowRoot!.querySelector('aside')!.hidden).toBe(true);
+    expect(element.shadowRoot!.querySelector('h1')!.textContent).toBe('Organization chart');
+    expect(element.shadowRoot!.querySelector('section')!.getAttribute('aria-label'))
+      .toBe('Organization chart');
+    expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent).toBe('Loading chart...');
+    staleCallbacks.onActivate('node', 'state', trigger);
+    expect(element.shadowRoot!.querySelector('aside')!.hidden).toBe(true);
+
+    failed.resolve(response({}, { ok: false, status: 500 }));
+    await settle();
+    expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent)
+      .toBe('Unable to load chart (HTTP 500).');
+    element.setAttribute('show-internal', 'false');
+    expect(renderers).toHaveLength(1);
+  });
+
   it('destroys on disconnect and loads cleanly when reconnected', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(cloneValidDocument())));
     const element = new OrgDeltaChartElement();
@@ -169,6 +208,58 @@ describe('OrgDeltaChartElement', () => {
     await settle();
     expect(renderers[0]!.views[0]!.nodes.map((node) => node.id)).toContain('state');
     expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent).toContain('ready');
+  });
+
+  it('shows the contextual validation error for an explicitly selected invalid proposal', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const documentData = cloneValidDocument();
+    documentData.proposals[0]!.patchGroups![0]!.patches[0] = {
+      type: 'set-node', node: 'missing', value: { name: 'Invalid' },
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    element.setAttribute('initial-view', 'proposal-a');
+    document.body.append(element);
+
+    await settle();
+    expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent)
+      .toContain('proposal/proposal-a/patchGroups/0/patches/0/node: unknown node "missing"');
+    expect(renderers).toHaveLength(0);
+  });
+
+  it('shows the contextual validation error for an explicitly selected invalid baseline', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const documentData = cloneValidDocument();
+    documentData.proposals[0]!.patchGroups![0]!.patches[0] = {
+      type: 'set-node', node: 'missing', value: { name: 'Invalid' },
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    element.setAttribute('compare-to', 'proposal-a');
+    document.body.append(element);
+
+    await settle();
+    expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent)
+      .toContain('proposal/proposal-a/patchGroups/0/patches/0/node: unknown node "missing"');
+    expect(renderers).toHaveLength(0);
+  });
+
+  it.each([
+    ['initial-view', 'Unable to display chart: view "missing" does not exist.'],
+    ['compare-to', 'Unable to display chart: baseline "missing" does not exist.'],
+  ])('rejects an unknown explicit %s', async (attribute, message) => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(cloneValidDocument())));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    element.setAttribute(attribute, 'missing');
+    document.body.append(element);
+
+    await settle();
+    expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent).toBe(message);
+    expect(renderers).toHaveLength(0);
   });
 
   it('uses initial view, baseline, default patches, and boolean display attributes', async () => {
@@ -219,6 +310,37 @@ describe('OrgDeltaChartElement', () => {
     (panel.querySelector('button') as HTMLButtonElement).click();
     expect(panel.hidden).toBe(true);
     expect(element.shadowRoot!.activeElement).toBe(trigger);
+  });
+
+  it('opens hierarchy details for stable IDs containing delimiters and quotes', async () => {
+    const parentId = 'parent->/"quoted"';
+    const childId = 'child->/"quoted"';
+    const documentData = cloneValidDocument();
+    documentData.nodes = {
+      [parentId]: { name: 'Parent' },
+      [childId]: { name: 'Child' },
+    };
+    documentData.snapshots = [{
+      id: 'current',
+      label: 'Current',
+      nodes: { [parentId]: {}, [childId]: {} },
+      hierarchy: [{ child: childId, parent: parentId, relationship: 'subordinate' }],
+    }];
+    documentData.proposals = [];
+    documentData.relationships = [];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+    const trigger = document.createElement('button');
+    element.shadowRoot!.querySelector('.canvas')!.append(trigger);
+
+    const activationId = encodeHierarchyActivationId(parentId, childId);
+    expect(decodeHierarchyActivationId(activationId)).toEqual([parentId, childId]);
+    renderers[0]!.callbacks.onActivate('hierarchy', activationId, trigger);
+
+    expect(element.shadowRoot!.querySelector('aside h2')!.textContent).toBe('Child -> Parent');
   });
 
   it('defensively omits non-HTTP sources from details', () => {

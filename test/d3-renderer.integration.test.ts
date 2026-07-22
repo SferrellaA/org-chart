@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { D3OrgChartRenderer } from '../src/renderer/d3-renderer';
-import type { RenderNode, RenderView } from '../src/renderer/types';
+import {
+  encodeHierarchyActivationId,
+  type RenderNode,
+  type RenderView,
+} from '../src/renderer/types';
 import { generateRendererStressView } from '../scripts/renderer-stress-fixture';
 
 function node(id: string, parentId?: string): RenderNode {
@@ -223,7 +227,7 @@ describe('D3OrgChartRenderer with installed d3-org-chart', () => {
     const onActivate = vi.fn();
     const renderer = new D3OrgChartRenderer(element, { onActivate });
     renderer.render(view([node('root'), node('child', 'root')]));
-    const link = element.querySelector<SVGPathElement>('[data-activate-id="root->child"]')!;
+    const link = element.querySelector<SVGPathElement>('[data-activate-kind="hierarchy"]')!;
 
     expect(link.getAttribute('role')).toBe('button');
     expect(link.getAttribute('tabindex')).toBe('0');
@@ -232,7 +236,7 @@ describe('D3OrgChartRenderer with installed d3-org-chart', () => {
 
     expect(onActivate).toHaveBeenCalledOnce();
     expect(onActivate.mock.calls[0]?.[0]).toBe('hierarchy');
-    expect(onActivate.mock.calls[0]?.[1]).toBe('root->child');
+    expect(onActivate.mock.calls[0]?.[1]).toBe(encodeHierarchyActivationId('root', 'child'));
     expect(onActivate.mock.calls[0]?.[2] === link).toBe(true);
     renderer.destroy();
   });
