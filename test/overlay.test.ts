@@ -164,6 +164,24 @@ describe('ConnectorOverlay', () => {
     expect(path?.getAttribute('stroke')).toBe('currentColor');
   });
 
+  it('falls back through visible outer parents when the internal source is unavailable', () => {
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () => rect(0, 0, 500, 500);
+    anchor(host, 'data-node-id', 'outer', rect(20, 20, 100, 50));
+    anchor(host, 'data-node-id', 'child', rect(200, 200, 100, 50));
+    const overlay = new ConnectorOverlay(host, vi.fn());
+    const child = { ...node('child', 'hidden-internal'), parentId: 'outer' };
+
+    overlay.sync([node('outer'), child], []);
+
+    const path = host.querySelector<SVGPathElement>(
+      '[data-hierarchy-id="hidden-internal->child"]',
+    );
+    expect(path?.dataset.connectorSourceId).toBe('outer');
+    expect(path?.dataset.aggregated).toBe('true');
+    expect(path?.classList.contains('org-delta-connector--aggregated')).toBe(true);
+  });
+
   it('activates relationship hit paths by click and keyboard without leaking old listeners', () => {
     const host = document.createElement('div');
     host.getBoundingClientRect = () => rect(0, 0, 500, 500);
@@ -184,6 +202,32 @@ describe('ConnectorOverlay', () => {
     expect(activate.mock.calls[0]?.[0]).toBe('relationship');
     expect(activate.mock.calls[0]?.[1]).toBe('rel');
     expect(activate.mock.calls[0]?.[2]).toBe(hit);
+  });
+
+  it('labels one focusable relationship hit target and supports Space activation', () => {
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () => rect(0, 0, 500, 500);
+    anchor(host, 'data-node-id', 'source', rect(0, 0, 100, 50));
+    anchor(host, 'data-node-id', 'target', rect(200, 200, 100, 50));
+    const activate = vi.fn();
+    const overlay = new ConnectorOverlay(host, activate);
+
+    overlay.sync([], [relationship(['source'], ['target'])]);
+
+    const paths = host.querySelectorAll<SVGPathElement>('[data-relationship-id="rel"]');
+    const visible = paths[0]!;
+    const hit = paths[1]!;
+    expect(visible.querySelector('title')?.textContent).toBe('works with');
+    expect(visible.getAttribute('aria-hidden')).toBe('true');
+    expect(visible.hasAttribute('tabindex')).toBe(false);
+    expect(hit.getAttribute('aria-label')).toBe('works with');
+    expect(hit.getAttribute('role')).toBe('link');
+    expect(hit.hasAttribute('aria-hidden')).toBe(false);
+    expect(hit.getAttribute('tabindex')).toBe('0');
+    expect(host.querySelectorAll('[data-relationship-id="rel"][tabindex="0"]')).toHaveLength(1);
+
+    hit.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: ' ' }));
+    expect(activate).toHaveBeenCalledOnce();
   });
 
   it('positions against the host and restores its inline positioning on destroy', () => {

@@ -41,6 +41,9 @@ const mocked = vi.hoisted(() => {
       this.layoutCallback = value;
       return this.record('onExpandOrCollapse', value);
     }
+    nodeUpdate(value: (this: SVGGElement, node: unknown) => void): this {
+      return this.record('nodeUpdate', value);
+    }
     linkUpdate(value: (this: SVGPathElement, node: unknown) => void): this {
       this.linkCallback = value;
       return this.record('linkUpdate', value);
@@ -189,6 +192,38 @@ describe('D3OrgChartRenderer', () => {
     expect(onActivate).toHaveBeenCalledWith('node', 'root', button);
   });
 
+  it('captures HTML activation before D3 node click and keyboard handlers', () => {
+    const host = document.createElement('div');
+    const onActivate = vi.fn();
+    new D3OrgChartRenderer(host, { onActivate });
+    const d3Click = vi.fn();
+    const d3Keydown = vi.fn();
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.addEventListener('click', d3Click);
+    group.addEventListener('keydown', d3Keydown);
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    const button = document.createElement('button');
+    button.dataset.activateKind = 'internal';
+    button.dataset.activateId = 'inside';
+    foreignObject.append(button);
+    group.append(foreignObject);
+    host.append(group);
+
+    button.click();
+    expect(onActivate).toHaveBeenCalledTimes(1);
+    expect(d3Click).not.toHaveBeenCalled();
+    onActivate.mockClear();
+
+    for (const key of ['Enter', ' ']) {
+      button.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key }));
+      button.click();
+      expect(onActivate).toHaveBeenCalledTimes(1);
+      expect(d3Keydown).not.toHaveBeenCalled();
+      expect(d3Click).not.toHaveBeenCalled();
+      onActivate.mockClear();
+    }
+  });
+
   it('makes normal hierarchy links activatable and hides replaced links', () => {
     const host = document.createElement('div');
     const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
@@ -198,7 +233,17 @@ describe('D3OrgChartRenderer', () => {
     callback.call(normal, { data: node({ id: 'child' }), parent: { data: node() } });
     const internal = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     callback.call(internal, {
-      data: node({ id: 'child', connectorSourceId: 'inside' }),
+      data: node({ id: 'child', parentId: 'root', connectorSourceId: 'inside' }),
+      parent: { data: node() },
+    });
+    const missingFallback = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    callback.call(missingFallback, {
+      data: node({ id: 'orphan', connectorSourceId: 'inside' }),
+      parent: { data: node() },
+    });
+    const mismatchedFallback = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    callback.call(mismatchedFallback, {
+      data: node({ id: 'mismatch', parentId: 'missing', connectorSourceId: 'inside' }),
       parent: { data: node() },
     });
 
@@ -208,6 +253,8 @@ describe('D3OrgChartRenderer', () => {
     expect(normal.getAttribute('stroke')).toBe('currentColor');
     expect(normal.getAttribute('stroke-width')).toBe('2');
     expect(internal.style.display).toBe('none');
+    expect(missingFallback.style.display).toBe('');
+    expect(mismatchedFallback.style.display).toBe('');
   });
 
   it('uses actual centering and fit APIs and disables motion when requested', () => {

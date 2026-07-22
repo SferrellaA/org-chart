@@ -117,21 +117,27 @@ export class ConnectorOverlay {
     this.svg = svg;
 
     const hostRect = this.host.getBoundingClientRect();
+    const nodesById = new Map(nodes.map((node) => [node.id, node]));
     for (const node of nodes) {
       if (node.connectorSourceId === undefined) continue;
-      const source = this.findAnchor('data-internal-id', node.connectorSourceId);
+      const internalSource = this.findAnchor('data-internal-id', node.connectorSourceId);
+      const source = internalSource
+        ? { element: internalSource, id: node.connectorSourceId }
+        : this.findOuterParentAnchor(node.parentId, nodesById);
       const target = this.findAnchor('data-node-id', node.id);
       if (!source || !target) continue;
       const id = `${node.connectorSourceId}->${node.id}`;
+      const aggregated = source.id !== node.connectorSourceId;
       const path = connectorPath(
-        relativeRect(source.getBoundingClientRect(), hostRect, this.host),
+        relativeRect(source.element.getBoundingClientRect(), hostRect, this.host),
         relativeRect(target.getBoundingClientRect(), hostRect, this.host),
       );
       this.appendPathPair(svg, path, 'hierarchy', id, {
         'data-hierarchy-id': id,
-        'data-connector-source-id': node.connectorSourceId,
+        'data-connector-source-id': source.id,
         'data-connector-target-id': node.id,
-      });
+        ...(aggregated ? { 'data-aggregated': 'true' } : {}),
+      }, aggregated);
     }
 
     for (const relationship of relationships) {
@@ -152,7 +158,7 @@ export class ConnectorOverlay {
         'data-relationship-source-id': source.id,
         'data-relationship-target-id': target.id,
         ...(aggregated ? { 'data-aggregated': 'true' } : {}),
-      }, aggregated);
+      }, aggregated, relationship.label);
     }
   }
 
@@ -179,6 +185,21 @@ export class ConnectorOverlay {
     return undefined;
   }
 
+  private findOuterParentAnchor(
+    parentId: string | undefined,
+    nodesById: ReadonlyMap<string, RenderNode>,
+  ): Anchor | undefined {
+    const visited = new Set<string>();
+    let current = parentId;
+    while (current !== undefined && !visited.has(current)) {
+      visited.add(current);
+      const element = this.findAnchor('data-node-id', current);
+      if (element) return { element, id: current };
+      current = nodesById.get(current)?.parentId;
+    }
+    return undefined;
+  }
+
   private appendPathPair(
     svg: SVGSVGElement,
     pathData: string,
@@ -186,6 +207,7 @@ export class ConnectorOverlay {
     id: string,
     attributes: Readonly<Record<string, string>>,
     aggregated = false,
+    accessibleLabel?: string,
   ): void {
     const visible = document.createElementNS(SVG_NAMESPACE, 'path');
     visible.classList.add('org-delta-connector', `org-delta-connector--${kind}`);
@@ -194,14 +216,17 @@ export class ConnectorOverlay {
     visible.setAttribute('fill', 'none');
     visible.setAttribute('stroke', 'currentColor');
     visible.setAttribute('stroke-width', '2');
+    visible.setAttribute('aria-hidden', 'true');
     visible.style.pointerEvents = 'none';
 
     const hit = visible.cloneNode(false) as SVGPathElement;
     hit.classList.add('org-delta-connector-hit');
+    hit.removeAttribute('aria-hidden');
     hit.setAttribute('stroke', 'transparent');
     hit.setAttribute('stroke-width', '12');
-    hit.setAttribute('role', 'button');
+    hit.setAttribute('role', kind === 'relationship' ? 'link' : 'button');
     hit.setAttribute('tabindex', '0');
+    if (accessibleLabel !== undefined) hit.setAttribute('aria-label', accessibleLabel);
     hit.style.pointerEvents = 'stroke';
     for (const [name, value] of Object.entries(attributes)) {
       visible.setAttribute(name, value);
@@ -219,6 +244,11 @@ export class ConnectorOverlay {
       hit.removeEventListener('click', activate);
       hit.removeEventListener('keydown', activateByKeyboard);
     });
+    if (accessibleLabel !== undefined) {
+      const title = document.createElementNS(SVG_NAMESPACE, 'title');
+      title.textContent = accessibleLabel;
+      visible.append(title);
+    }
     svg.append(visible, hit);
   }
 }
