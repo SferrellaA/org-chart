@@ -87,7 +87,7 @@ describe('overlay geometry', () => {
 });
 
 describe('ConnectorOverlay', () => {
-  it('supports stateless repeated synchronization without retaining detached targets', () => {
+  it('updates keyed paths in place without duplicating listeners', () => {
     const host = document.createElement('div');
     host.getBoundingClientRect = () => rect(0, 0, 500, 500);
     anchor(host, 'data-node-id', 'source', rect(0, 0, 100, 50));
@@ -103,12 +103,12 @@ describe('ConnectorOverlay', () => {
     };
 
     syncOverlay(svg, host, view, activate);
-    const detached = svg.querySelector<SVGPathElement>('.org-delta-connector-hit')!;
+    const original = svg.querySelector<SVGPathElement>('.org-delta-connector-hit')!;
     syncOverlay(svg, host, view, activate);
-    detached.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    svg.querySelector<SVGPathElement>('.org-delta-connector-hit')!
-      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const updated = svg.querySelector<SVGPathElement>('.org-delta-connector-hit')!;
+    updated.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
+    expect(updated === original).toBe(true);
     expect(activate).toHaveBeenCalledOnce();
     expect(svg.querySelectorAll('[data-relationship-id="rel"]')).toHaveLength(2);
   });
@@ -230,7 +230,7 @@ describe('ConnectorOverlay', () => {
     hit.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     hit.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
 
-    expect(activate).toHaveBeenCalledTimes(2);
+    expect(activate).toHaveBeenCalledTimes(3);
     expect(activate.mock.calls[0]?.[0]).toBe('relationship');
     expect(activate.mock.calls[0]?.[1]).toBe('rel');
     expect(activate.mock.calls[0]?.[2]).toBe(hit);

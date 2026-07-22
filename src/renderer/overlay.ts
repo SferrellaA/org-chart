@@ -120,6 +120,8 @@ function findOuterParentAnchor(
 
 function appendPathPair(
   svg: SVGSVGElement,
+  existing: ReadonlyMap<string, SVGPathElement>,
+  retained: Set<string>,
   pathData: string,
   kind: 'hierarchy' | 'relationship',
   id: string,
@@ -127,9 +129,13 @@ function appendPathPair(
   aggregated = false,
   accessibleLabel?: string,
 ): void {
-    const visible = document.createElementNS(SVG_NAMESPACE, 'path');
-    visible.classList.add('org-delta-connector', `org-delta-connector--${kind}`);
+    const key = `${kind}:${id}`;
+    const visibleKey = `${key}:visible`;
+    const hitKey = `${key}:hit`;
+    const visible = existing.get(visibleKey) ?? document.createElementNS(SVG_NAMESPACE, 'path');
+    visible.setAttribute('class', `org-delta-connector org-delta-connector--${kind}`);
     if (aggregated) visible.classList.add('org-delta-connector--aggregated');
+    visible.dataset.overlayKey = visibleKey;
     visible.setAttribute('d', pathData);
     visible.setAttribute('fill', 'none');
     visible.setAttribute('stroke', 'currentColor');
@@ -137,9 +143,12 @@ function appendPathPair(
     visible.setAttribute('aria-hidden', 'true');
     visible.style.pointerEvents = 'none';
 
-    const hit = visible.cloneNode(false) as SVGPathElement;
-    hit.classList.add('org-delta-connector-hit');
+    const hit = existing.get(hitKey) ?? visible.cloneNode(false) as SVGPathElement;
+    hit.setAttribute('class', `org-delta-connector org-delta-connector--${kind} org-delta-connector-hit`);
+    if (aggregated) hit.classList.add('org-delta-connector--aggregated');
+    hit.dataset.overlayKey = hitKey;
     hit.removeAttribute('aria-hidden');
+    hit.setAttribute('d', pathData);
     hit.setAttribute('stroke', 'transparent');
     hit.setAttribute('stroke-width', '12');
     hit.setAttribute('role', kind === 'relationship' ? 'link' : 'button');
@@ -147,17 +156,32 @@ function appendPathPair(
     hit.dataset.overlayKind = kind;
     hit.dataset.overlayId = id;
     if (accessibleLabel !== undefined) hit.setAttribute('aria-label', accessibleLabel);
+    else hit.removeAttribute('aria-label');
     hit.style.pointerEvents = 'stroke';
+    for (const path of [visible, hit]) {
+      for (const name of [
+        'data-hierarchy-id',
+        'data-connector-source-id',
+        'data-connector-target-id',
+        'data-relationship-id',
+        'data-relationship-source-id',
+        'data-relationship-target-id',
+        'data-aggregated',
+      ]) path.removeAttribute(name);
+    }
     for (const [name, value] of Object.entries(attributes)) {
       visible.setAttribute(name, value);
       hit.setAttribute(name, value);
     }
     if (accessibleLabel !== undefined) {
-      const title = document.createElementNS(SVG_NAMESPACE, 'title');
+      const title = visible.querySelector('title') ?? document.createElementNS(SVG_NAMESPACE, 'title');
       title.textContent = accessibleLabel;
-      visible.append(title);
-    }
-    svg.append(visible, hit);
+      if (!title.isConnected) visible.append(title);
+    } else visible.querySelector('title')?.remove();
+    if (!visible.isConnected) svg.append(visible);
+    if (!hit.isConnected) svg.append(hit);
+    retained.add(visibleKey);
+    retained.add(hitKey);
 }
 
 function overlayTarget(svg: SVGSVGElement, event: Event): SVGPathElement | undefined {
@@ -173,7 +197,11 @@ export function syncOverlay(
   view: RenderView,
   onActivate?: ActivationHandler,
 ): void {
-  svg.replaceChildren();
+  const existing = new Map(
+    [...svg.querySelectorAll<SVGPathElement>('path[data-overlay-key]')]
+      .map((path) => [path.dataset.overlayKey!, path]),
+  );
+  const retained = new Set<string>();
   svg.classList.add('org-delta-connectors');
   svg.setAttribute('aria-hidden', 'false');
   svg.style.position = 'absolute';
@@ -210,7 +238,7 @@ export function syncOverlay(
     if (!source || !target) continue;
     const id = `${node.connectorSourceId}->${node.id}`;
     const aggregated = source.id !== node.connectorSourceId;
-    appendPathPair(svg, connectorPath(
+    appendPathPair(svg, existing, retained, connectorPath(
       relativeRect(source.element.getBoundingClientRect(), hostRect, host),
       relativeRect(target.getBoundingClientRect(), hostRect, host),
     ), 'hierarchy', id, {
@@ -229,7 +257,7 @@ export function syncOverlay(
       source.id !== relationship.sourceAncestors[0] ||
       target.id !== relationship.targetAncestors[0];
     if (aggregated && source.id === target.id) continue;
-    appendPathPair(svg, relationshipPath(
+    appendPathPair(svg, existing, retained, relationshipPath(
       relativeRect(source.element.getBoundingClientRect(), hostRect, host),
       relativeRect(target.element.getBoundingClientRect(), hostRect, host),
     ), 'relationship', relationship.id, {
@@ -239,6 +267,7 @@ export function syncOverlay(
       ...(aggregated ? { 'data-aggregated': 'true' } : {}),
     }, aggregated, relationship.label);
   }
+  for (const [key, path] of existing) if (!retained.has(key)) path.remove();
 }
 
 export class ConnectorOverlay {

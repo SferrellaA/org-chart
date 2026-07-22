@@ -5,10 +5,13 @@ const mocked = vi.hoisted(() => {
   class FakeOrgChart {
     static instances: FakeOrgChart[] = [];
     calls: Array<[string, ...unknown[]]> = [];
+    currentData: Array<RenderNode & { _expanded?: boolean }> = [];
+    currentTransform = { x: 0, y: 0, k: 1 };
     content: ((value: unknown) => string) | undefined;
     zoomCallback: (() => void) | undefined;
-    layoutCallback: (() => void) | undefined;
+    layoutCallback: ((node?: unknown) => void) | undefined;
     linkCallback: ((this: SVGPathElement, value: unknown) => void) | undefined;
+    nodeCallback: ((this: SVGGElement, value: unknown) => void) | undefined;
 
     constructor() {
       FakeOrgChart.instances.push(this);
@@ -20,11 +23,23 @@ const mocked = vi.hoisted(() => {
     }
 
     container(value: unknown): this { return this.record('container', value); }
-    data(value: unknown): this { return this.record('data', value); }
+    data(value: Array<RenderNode & { _expanded?: boolean }>): this {
+      this.currentData = value;
+      return this.record('data', value);
+    }
+    getChartState(): {
+      data: Array<RenderNode & { _expanded?: boolean }>;
+      lastTransform: { x: number; y: number; k: number };
+    } {
+      return { data: this.currentData, lastTransform: this.currentTransform };
+    }
     nodeId(value: unknown): this { return this.record('nodeId', value); }
     parentNodeId(value: unknown): this { return this.record('parentNodeId', value); }
     nodeWidth(value: unknown): this { return this.record('nodeWidth', value); }
     nodeHeight(value: unknown): this { return this.record('nodeHeight', value); }
+    svgWidth(value: unknown): this { return this.record('svgWidth', value); }
+    svgHeight(value: unknown): this { return this.record('svgHeight', value); }
+    buttonContent(value: unknown): this { return this.record('buttonContent', value); }
     compact(value: unknown): this { return this.record('compact', value); }
     duration(value: unknown): this { return this.record('duration', value); }
     scaleExtent(value: unknown): this { return this.record('scaleExtent', value); }
@@ -37,11 +52,12 @@ const mocked = vi.hoisted(() => {
       this.zoomCallback = value;
       return this.record('onZoom', value);
     }
-    onExpandOrCollapse(value: () => void): this {
+    onExpandOrCollapse(value: (node?: unknown) => void): this {
       this.layoutCallback = value;
       return this.record('onExpandOrCollapse', value);
     }
     nodeUpdate(value: (this: SVGGElement, node: unknown) => void): this {
+      this.nodeCallback = value;
       return this.record('nodeUpdate', value);
     }
     linkUpdate(value: (this: SVGPathElement, node: unknown) => void): this {
@@ -138,25 +154,107 @@ describe('D3OrgChartRenderer', () => {
     renderer.render(view([node(), node({ id: 'child', parentId: 'root' })]));
 
     const chart = mocked.FakeOrgChart.instances[0]!;
-    expect(chart.calls.some(([name, value]) => name === 'container' && value === host)).toBe(true);
-    expect(chart.calls.filter(([name]) => name === 'setExpanded').map((call) => call.slice(1))).toEqual([
-      ['root', true],
-      ['child', true],
+    expect(chart.calls.some(([name, value]) =>
+      name === 'container' && value === host.querySelector('.org-delta-renderer-root'))).toBe(true);
+    const submitted = chart.currentData;
+    expect(submitted.filter(({ _expanded }) => _expanded).map(({ id }) => id)).toEqual([
+      'root',
+      'child',
     ]);
-    expect(chart.calls.filter(([name]) => name === 'render')).toHaveLength(2);
+    expect(chart.calls.filter(([name]) => name === 'render')).toHaveLength(1);
     expect(chart.calls.some(([name]) => name === 'minPagingVisibleNodes')).toBe(true);
     expect(chart.calls.some(([name]) => name.toLowerCase().includes('minimap'))).toBe(false);
   });
 
+  it('owns an isolated mount and preserves unrelated host children on destroy', () => {
+    const host = document.createElement('div');
+    const unrelated = document.createElement('p');
+    unrelated.textContent = 'keep';
+    host.append(unrelated);
+    const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+    const mount = host.querySelector<HTMLElement>('.org-delta-renderer-root');
+
+    expect(mount).not.toBeNull();
+    expect(mocked.FakeOrgChart.instances[0]!.calls).toContainEqual(['container', mount]);
+    renderer.destroy();
+    expect(host.childNodes).toHaveLength(1);
+    expect(host.firstChild).toBe(unrelated);
+  });
+
+  it('renders empty state without invoking D3 and makes fit and reveal safe no-ops', () => {
+    const host = document.createElement('div');
+    const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+    const chart = mocked.FakeOrgChart.instances[0]!;
+
+    expect(() => {
+      renderer.render(view([]));
+      renderer.fit();
+      renderer.reveal('missing');
+    }).not.toThrow();
+
+    expect(chart.calls.some(([name]) => name === 'data' || name === 'render')).toBe(false);
+    expect(chart.calls.some(([name]) => name === 'fit' || name === 'setCentered')).toBe(false);
+    expect(host.querySelector('.org-delta-empty-state')).not.toBeNull();
+    expect(host.querySelector<SVGSVGElement>('.org-delta-minimap')?.style.display).toBe('none');
+  });
+
+  it('configures chart dimensions from host bounds before render and fit', () => {
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () => rect(0, 0, 640, 480);
+    const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+    renderer.render(view());
+    renderer.fit();
+    const calls = mocked.FakeOrgChart.instances[0]!.calls;
+
+    expect(calls.filter(([name]) => name === 'svgWidth').at(-1)).toEqual(['svgWidth', 640]);
+    expect(calls.filter(([name]) => name === 'svgHeight').at(-1)).toEqual(['svgHeight', 480]);
+  });
+
+  it('preserves retained expansion state and renders only once per update', () => {
+    const host = document.createElement('div');
+    const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+    const chart = mocked.FakeOrgChart.instances[0]!;
+    const nodes = [node(), node({ id: 'child', parentId: 'root' })];
+    renderer.render(view(nodes));
+    const collapsed = chart.currentData.find(({ id }) => id === 'child')!;
+    collapsed._expanded = false;
+    chart.layoutCallback?.({ data: collapsed });
+
+    renderer.render(view([
+      node({ name: 'Updated root' }),
+      node({ id: 'child', parentId: 'root', name: 'Updated child' }),
+      node({ id: 'new', parentId: 'root' }),
+    ]));
+
+    const submitted = chart.calls.filter(([name]) => name === 'data').at(-1)?.[1] as
+      Array<RenderNode & { _expanded?: boolean }>;
+    expect(submitted.find(({ id }) => id === 'child')?._expanded).toBe(false);
+    expect(submitted.find(({ id }) => id === 'new')?._expanded).toBe(true);
+    expect(chart.calls.filter(([name]) => name === 'render')).toHaveLength(2);
+  });
+
+  it('treats nodes reappearing after an empty dataset as new', () => {
+    const host = document.createElement('div');
+    const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+    renderer.render(view([node()]));
+    renderer.render(view([]));
+    renderer.render({ ...view([node()]), initialExpansionIds: [] });
+
+    expect(mocked.FakeOrgChart.instances[0]!.currentData[0]?._expanded).toBe(false);
+  });
+
   it('draws an aria-hidden noninteractive minimap from rendered real nodes and links', () => {
+    vi.mocked(window.matchMedia).mockReturnValue({ matches: true } as MediaQueryList);
     const host = document.createElement('div');
     host.getBoundingClientRect = () => rect(0, 0, 500, 500);
-    renderedNode(host, 'root', rect(50, 50, 100, 50));
-    renderedNode(host, 'child', rect(300, 300, 100, 50));
     const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+    const mount = host.querySelector<HTMLElement>('.org-delta-renderer-root')!;
+    renderedNode(mount, 'root', rect(50, 50, 100, 50));
+    renderedNode(mount, 'child', rect(300, 300, 100, 50));
 
     renderer.render(view([node(), node({ id: 'child', parentId: 'root' })]));
     animationFrames[0]?.(0);
+    animationFrames[1]?.(0);
 
     const minimap = host.querySelector<SVGSVGElement>('.org-delta-minimap')!;
     expect(minimap).not.toBeNull();
@@ -169,14 +267,16 @@ describe('D3OrgChartRenderer', () => {
   });
 
   it('updates minimap geometry after resize and hides it when nodes disappear', () => {
+    vi.mocked(window.matchMedia).mockReturnValue({ matches: true } as MediaQueryList);
     const host = document.createElement('div');
     host.getBoundingClientRect = () => rect(0, 0, 500, 500);
-    renderedNode(host, 'root', rect(0, 0, 50, 50));
     let middleBounds = rect(100, 100, 50, 50);
-    const middle = renderedNode(host, 'middle', middleBounds);
-    middle.getBoundingClientRect = () => middleBounds;
-    renderedNode(host, 'far', rect(400, 400, 50, 50));
     const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+    const mount = host.querySelector<HTMLElement>('.org-delta-renderer-root')!;
+    renderedNode(mount, 'root', rect(0, 0, 50, 50));
+    const middle = renderedNode(mount, 'middle', middleBounds);
+    middle.getBoundingClientRect = () => middleBounds;
+    renderedNode(mount, 'far', rect(400, 400, 50, 50));
     const nodes = [
       node(),
       node({ id: 'middle', parentId: 'root' }),
@@ -184,19 +284,48 @@ describe('D3OrgChartRenderer', () => {
     ];
     renderer.render(view(nodes));
     animationFrames[0]?.(0);
+    animationFrames[1]?.(0);
     const minimap = host.querySelector<SVGSVGElement>('.org-delta-minimap')!;
     const before = minimap.querySelector('[data-minimap-node-id="middle"]')?.getAttribute('cx');
 
     middleBounds = rect(250, 100, 50, 50);
     resizeCallback?.([], {} as ResizeObserver);
-    animationFrames[1]?.(1);
+    animationFrames[2]?.(1);
+    animationFrames[3]?.(1);
     const after = minimap.querySelector('[data-minimap-node-id="middle"]')?.getAttribute('cx');
     expect(after).not.toBe(before);
 
     renderer.render(view([]));
-    animationFrames[2]?.(2);
+    animationFrames[4]?.(2);
+    animationFrames[5]?.(2);
     expect(minimap.style.display).toBe('none');
     expect(minimap.childNodes).toHaveLength(0);
+    renderer.destroy();
+  });
+
+  it('updates only the minimap viewport during zoom while retaining node-map elements', () => {
+    vi.mocked(window.matchMedia).mockReturnValue({ matches: true } as MediaQueryList);
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () => rect(0, 0, 400, 300);
+    const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+    const mount = host.querySelector<HTMLElement>('.org-delta-renderer-root')!;
+    mount.getBoundingClientRect = () => rect(0, 0, 400, 300);
+    renderedNode(mount, 'root', rect(50, 50, 50, 50));
+    renderedNode(mount, 'child', rect(300, 200, 50, 50));
+    renderer.render(view([node(), node({ id: 'child', parentId: 'root' })]));
+    animationFrames[0]?.(0);
+    animationFrames[1]?.(0);
+    const chart = mocked.FakeOrgChart.instances[0]!;
+    const minimap = mount.querySelector<SVGSVGElement>('.org-delta-minimap')!;
+    const dot = minimap.querySelector('[data-minimap-node-id="root"]');
+    const viewport = minimap.querySelector<SVGRectElement>('.org-delta-minimap-viewport')!;
+    const before = viewport.getAttribute('x');
+
+    chart.currentTransform = { x: -100, y: -50, k: 2 };
+    chart.zoomCallback?.();
+
+    expect(viewport.getAttribute('x')).not.toBe(before);
+    expect(minimap.querySelector('[data-minimap-node-id="root"]') === dot).toBe(true);
     renderer.destroy();
   });
 
@@ -249,6 +378,84 @@ describe('D3OrgChartRenderer', () => {
     expect(container.textContent).toContain('<script>alert(1)</script>');
   });
 
+  it('coerces unsafe runtime diff, depth, and count values before HTML interpolation', () => {
+    const host = document.createElement('div');
+    const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+    const unsafe = node({
+      diffKind: 'bad" onclick="alert(1)' as RenderNode['diffKind'],
+      hiddenInternalCount: Number.NaN,
+      hiddenChangeCount: Number.POSITIVE_INFINITY,
+      internalRows: [{
+        id: 'inside',
+        name: 'Inside',
+        depth: Number.POSITIVE_INFINITY,
+        diffKind: '<img>' as RenderNode['diffKind'],
+        hasSubordinateChildren: false,
+      }],
+    });
+    renderer.render(view([unsafe]));
+    const html = mocked.FakeOrgChart.instances[0]!.content?.({ data: unsafe }) ?? '';
+    const container = document.createElement('div');
+    container.innerHTML = html;
+
+    expect(container.querySelector('[onclick],img')).toBeNull();
+    expect(container.querySelector('[data-diff-kind]')?.getAttribute('data-diff-kind')).toBe('unchanged');
+    expect(container.querySelector('[data-depth]')?.getAttribute('data-depth')).toBe('0');
+    expect(container.querySelector('[data-hidden-internal-count]')).toBeNull();
+    expect(container.querySelector('[data-hidden-change-count]')).toBeNull();
+  });
+
+  it('labels generated expand controls and hierarchy paths and cleans hidden link focusability', () => {
+    const host = document.createElement('div');
+    const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+    renderer.render(view([node(), node({ id: 'child', parentId: 'root' })]));
+    const chart = mocked.FakeOrgChart.instances[0]!;
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const control = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    control.classList.add('node-button-g');
+    group.append(control);
+    chart.nodeCallback?.call(group, { data: node({ name: 'Root name' }), children: [{}] });
+    expect(control.getAttribute('role')).toBe('button');
+    expect(control.getAttribute('tabindex')).toBe('0');
+    expect(control.getAttribute('aria-label')).toContain('Root name');
+
+    const link = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    chart.linkCallback?.call(link, {
+      data: node({ id: 'child', name: 'Child name' }),
+      parent: { data: node({ name: 'Root name' }) },
+    });
+    expect(link.getAttribute('aria-label')).toBe('Root name hierarchy to Child name');
+    expect(link.querySelector('title')?.textContent).toBe('Root name hierarchy to Child name');
+
+    chart.linkCallback?.call(link, {
+      data: node({ id: 'child', parentId: 'root', connectorSourceId: 'inside' }),
+      parent: { data: node() },
+    });
+    expect(link.hasAttribute('tabindex')).toBe(false);
+    expect(link.hasAttribute('role')).toBe(false);
+    expect(link.hasAttribute('aria-label')).toBe(false);
+    expect(link.querySelector('title')).toBeNull();
+  });
+
+  it('reacts to reduced-motion preference changes and removes the subscription', () => {
+    let listener: ((event: MediaQueryListEvent) => void) | undefined;
+    const remove = vi.fn();
+    vi.mocked(window.matchMedia).mockReturnValue({
+      matches: false,
+      addEventListener: (_name: string, value: EventListenerOrEventListenerObject) => {
+        listener = value as (event: MediaQueryListEvent) => void;
+      },
+      removeEventListener: remove,
+    } as unknown as MediaQueryList);
+    const renderer = new D3OrgChartRenderer(document.createElement('div'), { onActivate: vi.fn() });
+    const chart = mocked.FakeOrgChart.instances[0]!;
+
+    listener?.({ matches: true } as MediaQueryListEvent);
+    expect(chart.calls.filter(([name]) => name === 'duration').at(-1)).toEqual(['duration', 0]);
+    renderer.destroy();
+    expect(remove).toHaveBeenCalledWith('change', expect.any(Function));
+  });
+
   it('delegates activation once across repeated renders', () => {
     const host = document.createElement('div');
     const onActivate = vi.fn();
@@ -258,7 +465,7 @@ describe('D3OrgChartRenderer', () => {
     const button = document.createElement('button');
     button.dataset.activateKind = 'node';
     button.dataset.activateId = 'root';
-    host.append(button);
+    host.querySelector('.org-delta-renderer-root')!.append(button);
 
     button.click();
 
@@ -281,7 +488,7 @@ describe('D3OrgChartRenderer', () => {
     button.dataset.activateId = 'inside';
     foreignObject.append(button);
     group.append(foreignObject);
-    host.append(group);
+    host.querySelector('.org-delta-renderer-root')!.append(group);
 
     button.click();
     expect(onActivate).toHaveBeenCalledTimes(1);
@@ -353,9 +560,9 @@ describe('D3OrgChartRenderer', () => {
     renderer.render(view());
     const chart = mocked.FakeOrgChart.instances[0]!;
     chart.zoomCallback?.();
-    chart.layoutCallback?.();
+    chart.layoutCallback?.({ data: chart.currentData[0] });
     resizeCallback?.([], {} as ResizeObserver);
-    expect(animationFrames).toHaveLength(1);
+    expect(animationFrames).toHaveLength(2);
 
     renderer.destroy();
     const button = document.createElement('button');
@@ -380,11 +587,44 @@ describe('D3OrgChartRenderer', () => {
     const host = document.createElement('div');
     const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
     renderer.render(view());
-    expect(animationFrames).toHaveLength(1);
+    expect(animationFrames).toHaveLength(2);
     animationFrames[0]?.(0);
 
     vi.advanceTimersByTime(300);
 
+    expect(animationFrames.length).toBeGreaterThan(2);
+    renderer.destroy();
+  });
+
+  it('runs a bounded overlay RAF loop for animated small charts', () => {
+    const host = document.createElement('div');
+    const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+    renderer.render(view([node(), node({ id: 'child', parentId: 'root' })]));
+
+    animationFrames[0]?.(0);
+    expect(animationFrames.length).toBeGreaterThan(1);
+    for (let index = 1; index < 30 && animationFrames[index]; index += 1) {
+      animationFrames[index]?.(index * 16);
+    }
+    expect(animationFrames.length).toBeLessThanOrEqual(21);
+    renderer.destroy();
+  });
+
+  it('disables animation and coalesces overlay work for hundreds of visible nodes', () => {
+    const host = document.createElement('div');
+    const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+    const nodes = Array.from({ length: 500 }, (_value, index) => node({
+      id: `node-${index}`,
+      ...(index === 0 ? {} : { parentId: `node-${index - 1}` }),
+    }));
+    renderer.render(view(nodes));
+    const chart = mocked.FakeOrgChart.instances[0]!;
+    chart.zoomCallback?.();
+    chart.zoomCallback?.();
+    expect(animationFrames).toHaveLength(2);
+    animationFrames[0]?.(0);
+
+    expect(chart.calls.filter(([name]) => name === 'duration').at(-1)).toEqual(['duration', 0]);
     expect(animationFrames).toHaveLength(2);
     renderer.destroy();
   });

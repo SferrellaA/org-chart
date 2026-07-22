@@ -4,6 +4,7 @@ import { OrgChart } from 'd3-org-chart';
 import { ConnectorOverlay } from './overlay';
 import type { ActivationHandler, ActivationKind } from './overlay';
 import type { ChartRenderer, RenderNode, RenderView } from './types';
+import type { DiffKind } from '../model/diff';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
@@ -12,11 +13,14 @@ const SYNTHETIC_ROOT = Symbol('org-delta-chart synthetic root');
 interface RendererNode extends RenderNode {
   [SYNTHETIC_ROOT]?: true;
   _expanded?: boolean;
+  _directSubordinates?: number;
 }
 
 interface D3HierarchyNode {
   data: RendererNode;
   parent?: D3HierarchyNode;
+  children?: readonly D3HierarchyNode[];
+  _children?: readonly D3HierarchyNode[];
 }
 
 interface OrgChartApi {
@@ -26,19 +30,24 @@ interface OrgChartApi {
   parentNodeId(value: (node: RendererNode) => string | undefined): this;
   nodeWidth(value: (node: D3HierarchyNode) => number): this;
   nodeHeight(value: (node: D3HierarchyNode) => number): this;
+  svgWidth(value: number): this;
+  svgHeight(value: number): this;
   nodeContent(value: (node: D3HierarchyNode) => string): this;
   compact(value: boolean): this;
   duration(value: number): this;
   scaleExtent(value: [number, number]): this;
   minPagingVisibleNodes(value: (node: D3HierarchyNode) => number): this;
   onZoom(value: () => void): this;
-  onExpandOrCollapse(value: () => void): this;
+  onExpandOrCollapse(value: (node: D3HierarchyNode) => void): this;
   nodeUpdate(value: (this: SVGGElement, node: D3HierarchyNode) => void): this;
   linkUpdate(value: (this: SVGPathElement, node: D3HierarchyNode) => void): this;
   render(): this;
-  setExpanded(id: string, expanded: boolean): this;
   setCentered(id: string): this;
   fit(options?: { animate?: boolean }): this;
+  getChartState(): {
+    data: readonly RendererNode[] | null;
+    lastTransform: { x: number; y: number; k: number };
+  };
   clear(): void;
 }
 
@@ -95,6 +104,24 @@ function escapeHtml(value: string): string {
   });
 }
 
+function safeDiffKind(value: unknown): DiffKind {
+  return value === 'added' || value === 'removed' || value === 'modified' || value === 'unchanged'
+    ? value
+    : 'unchanged';
+}
+
+function safeCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : 0;
+}
+
+function safeDepth(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : 0;
+}
+
 function activationAttributes(kind: ActivationKind, id: string): string {
   return `data-activate-kind="${kind}" data-activate-id="${escapeHtml(id)}"`;
 }
@@ -102,45 +129,64 @@ function activationAttributes(kind: ActivationKind, id: string): string {
 function renderNodeContent({ data: node }: D3HierarchyNode): string {
   if (isSynthetic(node)) return '';
   const nodeId = escapeHtml(node.id);
+  const nodeDiffKind = safeDiffKind(node.diffKind);
   const classes = [
     'org-delta-node',
-    `org-delta-node--${node.diffKind}`,
+    `org-delta-node--${nodeDiffKind}`,
     ...(node.ghost ? ['org-delta-node--ghost'] : []),
   ].join(' ');
   const rows = node.internalRows.map((row) => {
     const rowId = escapeHtml(row.id);
-    const change = row.diffKind === 'unchanged'
+    const rowDiffKind = safeDiffKind(row.diffKind);
+    const change = rowDiffKind === 'unchanged'
       ? ''
-      : `<button type="button" class="org-delta-change org-delta-change--${row.diffKind}" ${activationAttributes('change', row.id)} aria-label="View changes for ${escapeHtml(row.name)}">${escapeHtml(row.diffKind)}</button>`;
-    return `<div class="org-delta-internal org-delta-internal--${row.diffKind}" data-internal-id="${rowId}" data-depth="${row.depth}"><button type="button" class="org-delta-internal-name" ${activationAttributes('internal', row.id)}>${escapeHtml(row.name)}</button>${row.hasSubordinateChildren ? '<span class="org-delta-subordinate-marker" aria-label="Has subordinate children"></span>' : ''}${change}</div>`;
+      : `<button type="button" class="org-delta-change org-delta-change--${rowDiffKind}" ${activationAttributes('change', row.id)} aria-label="View changes for ${escapeHtml(row.name)}">${rowDiffKind}</button>`;
+    return `<div class="org-delta-internal org-delta-internal--${rowDiffKind}" data-internal-id="${rowId}" data-depth="${safeDepth(row.depth)}"><button type="button" class="org-delta-internal-name" ${activationAttributes('internal', row.id)}>${escapeHtml(row.name)}</button>${row.hasSubordinateChildren ? '<span class="org-delta-subordinate-marker" aria-label="Has subordinate children"></span>' : ''}${change}</div>`;
   }).join('');
-  const hiddenInternal = node.hiddenInternalCount > 0
-    ? `<span class="org-delta-hidden-count" data-hidden-internal-count="${node.hiddenInternalCount}">${node.hiddenInternalCount} hidden</span>`
+  const internalCount = safeCount(node.hiddenInternalCount);
+  const changeCount = safeCount(node.hiddenChangeCount);
+  const hiddenInternal = internalCount > 0
+    ? `<span class="org-delta-hidden-count" data-hidden-internal-count="${internalCount}">${internalCount} hidden</span>`
     : '';
-  const hiddenChanges = node.hiddenChangeCount > 0
-    ? `<span class="org-delta-hidden-changes" data-hidden-change-count="${node.hiddenChangeCount}">${node.hiddenChangeCount} changed</span>`
+  const hiddenChanges = changeCount > 0
+    ? `<span class="org-delta-hidden-changes" data-hidden-change-count="${changeCount}">${changeCount} changed</span>`
     : '';
-  const change = node.diffKind === 'unchanged' && node.hiddenChangeCount === 0
+  const change = nodeDiffKind === 'unchanged' && changeCount === 0
     ? ''
-    : `<button type="button" class="org-delta-change org-delta-change--${node.diffKind}" ${activationAttributes('change', node.id)}>View changes</button>`;
-  return `<article class="${classes}" data-node-id="${nodeId}" data-diff-kind="${node.diffKind}"><button type="button" class="org-delta-node-name" ${activationAttributes('node', node.id)}>${escapeHtml(node.name)}</button>${change}${hiddenInternal}${hiddenChanges}<div class="org-delta-internal-rows">${rows}</div></article>`;
-}
-
-function prefersReducedMotion(): boolean {
-  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    : `<button type="button" class="org-delta-change org-delta-change--${nodeDiffKind}" ${activationAttributes('change', node.id)}>View changes</button>`;
+  return `<article class="${classes}" data-node-id="${nodeId}" data-diff-kind="${nodeDiffKind}"><button type="button" class="org-delta-node-name" ${activationAttributes('node', node.id)}>${escapeHtml(node.name)}</button>${change}${hiddenInternal}${hiddenChanges}<div class="org-delta-internal-rows">${rows}</div></article>`;
 }
 
 export class D3OrgChartRenderer implements ChartRenderer {
   private static readonly LAYOUT_DURATION = 300;
+  private readonly mount = document.createElement('div');
+  private readonly emptyState = document.createElement('div');
   private readonly chart: OrgChartApi;
   private readonly overlay: ConnectorOverlay;
   private readonly minimap = document.createElementNS(SVG_NAMESPACE, 'svg');
-  private readonly reducedMotion: boolean;
+  private reducedMotion: boolean;
+  private readonly motionQuery: MediaQueryList | undefined;
   private readonly resizeObserver: ResizeObserver | undefined;
   private currentView: RenderView | undefined;
-  private frame: number | undefined;
+  private readonly expansion = new Map<string, boolean>();
+  private overlayFrame: number | undefined;
+  private minimapFrame: number | undefined;
+  private transitionFrames = 0;
+  private minimapProjection: {
+    minX: number;
+    minY: number;
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+  } | undefined;
+  private chartHasData = false;
   private layoutTimer: ReturnType<typeof setTimeout> | undefined;
   private destroyed = false;
+  private readonly motionHandler = (event: MediaQueryListEvent): void => {
+    this.reducedMotion = event.matches;
+    if (event.matches) this.transitionFrames = 0;
+    this.chart.duration(this.layoutDuration());
+  };
   private readonly clickHandler = (event: MouseEvent): void => {
     if (!this.activationTrigger(event)) return;
     event.stopPropagation();
@@ -160,8 +206,19 @@ export class D3OrgChartRenderer implements ChartRenderer {
     private readonly host: HTMLElement,
     private readonly options: D3OrgChartRendererOptions,
   ) {
-    this.reducedMotion = prefersReducedMotion();
-    this.overlay = new ConnectorOverlay(host, options.onActivate);
+    this.mount.className = 'org-delta-renderer-root';
+    this.mount.style.position = 'relative';
+    this.mount.style.width = '100%';
+    this.mount.style.height = '100%';
+    this.emptyState.className = 'org-delta-empty-state';
+    this.emptyState.hidden = true;
+    this.mount.append(this.emptyState);
+    host.append(this.mount);
+    this.motionQuery = typeof matchMedia === 'function'
+      ? matchMedia('(prefers-reduced-motion: reduce)')
+      : undefined;
+    this.reducedMotion = this.motionQuery?.matches ?? false;
+    this.overlay = new ConnectorOverlay(this.mount, options.onActivate);
     this.minimap.classList.add('org-delta-minimap');
     this.minimap.setAttribute('aria-hidden', 'true');
     this.minimap.setAttribute('viewBox', '0 0 160 100');
@@ -171,9 +228,11 @@ export class D3OrgChartRenderer implements ChartRenderer {
     this.minimap.style.width = '160px';
     this.minimap.style.height = '100px';
     this.minimap.style.pointerEvents = 'none';
+    this.minimap.style.display = 'none';
+    this.mount.append(this.minimap);
     this.chart = new OrgChart() as OrgChartApi;
     this.chart
-      .container(host)
+      .container(this.mount)
       .nodeId((node) => node.id)
       .parentNodeId((node) => node.parentId)
       .nodeWidth(({ data }) => isSynthetic(data) ? 1 : 280)
@@ -185,12 +244,40 @@ export class D3OrgChartRenderer implements ChartRenderer {
       .duration(this.reducedMotion ? 0 : D3OrgChartRenderer.LAYOUT_DURATION)
       .scaleExtent([0.15, 4])
       .minPagingVisibleNodes(() => 200)
-      .onZoom(() => this.scheduleOverlay())
-      .onExpandOrCollapse(() => this.scheduleAfterLayout())
-      .nodeUpdate(function ({ data }: D3HierarchyNode): void {
-        if (!isSynthetic(data)) return;
-        this.style.display = 'none';
-        this.setAttribute('aria-hidden', 'true');
+      .onZoom(() => {
+        this.scheduleOverlay();
+        this.updateMinimapViewport();
+      })
+      .onExpandOrCollapse((node) => {
+        if (!isSynthetic(node.data)) this.expansion.set(node.data.id, node.data._expanded === true);
+        this.scheduleAfterLayout();
+      })
+      .nodeUpdate(function (node: D3HierarchyNode): void {
+        if (isSynthetic(node.data)) {
+          this.style.display = 'none';
+          this.setAttribute('aria-hidden', 'true');
+          return;
+        }
+        const control = this.querySelector<SVGGElement>('.node-button-g');
+        if (!control) return;
+        const hasChildren = Boolean(node.children || node._children || node.data._directSubordinates);
+        if (!hasChildren) {
+          control.removeAttribute('role');
+          control.removeAttribute('tabindex');
+          control.removeAttribute('aria-label');
+          control.querySelector('title')?.remove();
+          return;
+        }
+        const label = `${node.children ? 'Collapse' : 'Expand'} children of ${node.data.name}`;
+        control.setAttribute('role', 'button');
+        control.setAttribute('tabindex', '0');
+        control.setAttribute('aria-label', label);
+        let title = control.querySelector<SVGTitleElement>('title');
+        if (!title) {
+          title = document.createElementNS(SVG_NAMESPACE, 'title');
+          control.prepend(title);
+        }
+        title.textContent = label;
       })
       .linkUpdate(function (current: D3HierarchyNode): void {
         if (isSynthetic(current.data) || isSynthetic(current.parent?.data)) {
@@ -198,6 +285,9 @@ export class D3OrgChartRenderer implements ChartRenderer {
           this.removeAttribute('data-activate-kind');
           this.removeAttribute('data-activate-id');
           this.removeAttribute('tabindex');
+          this.removeAttribute('role');
+          this.removeAttribute('aria-label');
+          this.querySelector('title')?.remove();
           return;
         }
         if (
@@ -209,6 +299,10 @@ export class D3OrgChartRenderer implements ChartRenderer {
           this.style.display = 'none';
           this.removeAttribute('data-activate-kind');
           this.removeAttribute('data-activate-id');
+          this.removeAttribute('tabindex');
+          this.removeAttribute('role');
+          this.removeAttribute('aria-label');
+          this.querySelector('title')?.remove();
           return;
         }
         const parentId = current.parent?.data.id;
@@ -220,12 +314,26 @@ export class D3OrgChartRenderer implements ChartRenderer {
         this.dataset.activateId = `${parentId}->${current.data.id}`;
         this.setAttribute('role', 'button');
         this.setAttribute('tabindex', '0');
+        const label = `${current.parent!.data.name} hierarchy to ${current.data.name}`;
+        this.setAttribute('aria-label', label);
+        let title = this.querySelector<SVGTitleElement>('title');
+        if (!title) {
+          title = document.createElementNS(SVG_NAMESPACE, 'title');
+          this.prepend(title);
+        }
+        title.textContent = label;
       });
 
-    host.addEventListener('click', this.clickHandler, true);
-    host.addEventListener('keydown', this.keyHandler, true);
+    this.motionQuery?.addEventListener?.('change', this.motionHandler);
+
+    this.mount.addEventListener('click', this.clickHandler, true);
+    this.mount.addEventListener('keydown', this.keyHandler, true);
     if (typeof ResizeObserver === 'function') {
-      this.resizeObserver = new ResizeObserver(() => this.scheduleOverlay());
+      this.resizeObserver = new ResizeObserver(() => {
+        this.configureSize();
+        this.scheduleOverlay();
+        this.scheduleMinimap();
+      });
       this.resizeObserver.observe(host);
     }
   }
@@ -233,26 +341,50 @@ export class D3OrgChartRenderer implements ChartRenderer {
   render(view: RenderView): void {
     if (this.destroyed) return;
     this.currentView = view;
+    this.emptyState.hidden = view.nodes.length > 0;
+    if (view.nodes.length === 0) {
+      this.chart.clear();
+      this.chartHasData = false;
+      this.expansion.clear();
+      this.transitionFrames = 0;
+      this.scheduleOverlay();
+      this.scheduleMinimap();
+      return;
+    }
+    this.configureSize();
+    const duration = this.layoutDuration();
+    this.chart.duration(duration);
+    if (this.chartHasData) {
+      for (const node of this.chart.getChartState().data ?? []) {
+        if (!isSynthetic(node) && node._expanded !== undefined) {
+          this.expansion.set(node.id, node._expanded);
+        }
+      }
+    }
     const initial = new Set(view.initialExpansionIds);
+    const retained = new Set(view.nodes.map(({ id }) => id));
+    for (const id of this.expansion.keys()) if (!retained.has(id)) this.expansion.delete(id);
     const data = rendererData(
-      view.nodes.map((node) => ({ ...node, _expanded: initial.has(node.id) })),
+      view.nodes.map((node) => {
+        const expanded = this.expansion.get(node.id) ?? initial.has(node.id);
+        this.expansion.set(node.id, expanded);
+        return { ...node, _expanded: expanded };
+      }),
     );
     this.chart.data(data).render();
-    if (view.initialExpansionIds.length > 0) {
-      for (const id of view.initialExpansionIds) this.chart.setExpanded(id, true);
-      this.chart.render();
-    }
+    this.chartHasData = true;
     this.scheduleAfterLayout();
   }
 
   reveal(nodeId: string): void {
-    if (this.destroyed) return;
+    if (this.destroyed || !this.currentView?.nodes.some(({ id }) => id === nodeId)) return;
     this.chart.setCentered(nodeId).render();
     this.scheduleAfterLayout();
   }
 
   fit(): void {
-    if (this.destroyed) return;
+    if (this.destroyed || !this.currentView || this.currentView.nodes.length === 0) return;
+    this.configureSize();
     this.chart.fit({ animate: !this.reducedMotion });
     this.scheduleAfterLayout();
   }
@@ -260,33 +392,51 @@ export class D3OrgChartRenderer implements ChartRenderer {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    if (this.frame !== undefined) cancelAnimationFrame(this.frame);
-    this.frame = undefined;
+    if (this.overlayFrame !== undefined) cancelAnimationFrame(this.overlayFrame);
+    if (this.minimapFrame !== undefined) cancelAnimationFrame(this.minimapFrame);
+    this.overlayFrame = undefined;
+    this.minimapFrame = undefined;
     if (this.layoutTimer !== undefined) clearTimeout(this.layoutTimer);
     this.layoutTimer = undefined;
     this.resizeObserver?.disconnect();
-    this.host.removeEventListener('click', this.clickHandler, true);
-    this.host.removeEventListener('keydown', this.keyHandler, true);
+    this.motionQuery?.removeEventListener?.('change', this.motionHandler);
+    this.mount.removeEventListener('click', this.clickHandler, true);
+    this.mount.removeEventListener('keydown', this.keyHandler, true);
     this.chart.clear();
     this.overlay.destroy();
     this.minimap.remove();
-    this.host.replaceChildren();
+    this.mount.remove();
     this.currentView = undefined;
   }
 
   private scheduleOverlay(): void {
-    if (this.destroyed || this.frame !== undefined) return;
-    this.frame = requestAnimationFrame(() => {
-      this.frame = undefined;
+    if (this.destroyed || this.overlayFrame !== undefined) return;
+    this.overlayFrame = requestAnimationFrame(() => {
+      this.overlayFrame = undefined;
       if (this.destroyed || !this.currentView) return;
       this.overlay.sync(this.currentView.nodes, this.currentView.relationships);
+      this.updateMinimapViewport();
+      if (this.transitionFrames > 0) {
+        this.transitionFrames -= 1;
+        this.scheduleOverlay();
+      }
+    });
+  }
+
+  private scheduleMinimap(): void {
+    if (this.destroyed || this.minimapFrame !== undefined) return;
+    this.minimapFrame = requestAnimationFrame(() => {
+      this.minimapFrame = undefined;
+      if (this.destroyed || !this.currentView) return;
       this.syncMinimap(this.currentView);
     });
   }
 
   private syncMinimap(view: RenderView): void {
     const ids = new Set(view.nodes.map(({ id }) => id));
-    const rendered = [...this.host.querySelectorAll<HTMLElement>('[data-node-id]')]
+    const transform = this.chart.getChartState().lastTransform ?? { x: 0, y: 0, k: 1 };
+    const mountRect = this.mount.getBoundingClientRect();
+    const rendered = [...this.mount.querySelectorAll<HTMLElement>('[data-node-id]')]
       .filter((element) => ids.has(element.dataset.nodeId ?? ''))
       .map((element) => ({
         id: element.dataset.nodeId!,
@@ -298,18 +448,26 @@ export class D3OrgChartRenderer implements ChartRenderer {
       return;
     }
     this.minimap.style.display = '';
-    if (!this.minimap.isConnected) this.host.append(this.minimap);
+    if (this.minimap.parentElement !== this.mount) this.mount.append(this.minimap);
 
-    const minX = Math.min(...rendered.map(({ rect }) => rect.left));
-    const minY = Math.min(...rendered.map(({ rect }) => rect.top));
-    const maxX = Math.max(...rendered.map(({ rect }) => rect.right));
-    const maxY = Math.max(...rendered.map(({ rect }) => rect.bottom));
+    const world = rendered.map(({ id, rect }) => ({
+      id,
+      left: (rect.left - mountRect.left - transform.x) / transform.k,
+      top: (rect.top - mountRect.top - transform.y) / transform.k,
+      width: rect.width / transform.k,
+      height: rect.height / transform.k,
+    }));
+    const minX = Math.min(...world.map(({ left }) => left));
+    const minY = Math.min(...world.map(({ top }) => top));
+    const maxX = Math.max(...world.map(({ left, width }) => left + width));
+    const maxY = Math.max(...world.map(({ top, height }) => top + height));
     const scale = Math.min(148 / Math.max(1, maxX - minX), 88 / Math.max(1, maxY - minY));
     const offsetX = (160 - (maxX - minX) * scale) / 2;
     const offsetY = (100 - (maxY - minY) * scale) / 2;
-    const points = new Map(rendered.map(({ id, rect }) => [id, {
-      x: offsetX + (rect.left + rect.width / 2 - minX) * scale,
-      y: offsetY + (rect.top + rect.height / 2 - minY) * scale,
+    this.minimapProjection = { minX, minY, scale, offsetX, offsetY };
+    const points = new Map(world.map(({ id, left, top, width, height }) => [id, {
+      x: offsetX + (left + width / 2 - minX) * scale,
+      y: offsetY + (top + height / 2 - minY) * scale,
     }]));
 
     for (const node of view.nodes) {
@@ -335,17 +493,61 @@ export class D3OrgChartRenderer implements ChartRenderer {
       circle.setAttribute('fill', 'currentColor');
       this.minimap.append(circle);
     }
+    this.updateMinimapViewport();
+  }
+
+  private updateMinimapViewport(): void {
+    if (!this.minimapProjection || this.minimap.parentElement !== this.mount) return;
+    const { minX, minY, scale, offsetX, offsetY } = this.minimapProjection;
+    const { x, y, k } = this.chart.getChartState().lastTransform ?? { x: 0, y: 0, k: 1 };
+    const rect = this.host.getBoundingClientRect();
+    const width = rect.width > 0 ? rect.width : this.host.clientWidth || 800;
+    const height = rect.height > 0 ? rect.height : this.host.clientHeight || 600;
+    let viewport = this.minimap.querySelector<SVGRectElement>('.org-delta-minimap-viewport');
+    if (!viewport) {
+      viewport = document.createElementNS(SVG_NAMESPACE, 'rect');
+      viewport.classList.add('org-delta-minimap-viewport');
+      viewport.setAttribute('fill', 'none');
+      viewport.setAttribute('stroke', 'currentColor');
+      this.minimap.append(viewport);
+    }
+    viewport.setAttribute('x', String(offsetX + (-x / k - minX) * scale));
+    viewport.setAttribute('y', String(offsetY + (-y / k - minY) * scale));
+    viewport.setAttribute('width', String(width / k * scale));
+    viewport.setAttribute('height', String(height / k * scale));
   }
 
   private scheduleAfterLayout(): void {
+    const duration = this.layoutDuration();
+    this.transitionFrames = duration === 0 ? 0 : Math.ceil(duration / 16);
     this.scheduleOverlay();
+    this.scheduleMinimap();
     if (this.layoutTimer !== undefined) clearTimeout(this.layoutTimer);
     this.layoutTimer = undefined;
-    if (this.reducedMotion) return;
+    if (duration === 0) return;
     this.layoutTimer = setTimeout(() => {
       this.layoutTimer = undefined;
       this.scheduleOverlay();
+      this.scheduleMinimap();
     }, D3OrgChartRenderer.LAYOUT_DURATION);
+  }
+
+  private configureSize(): void {
+    const rect = this.host.getBoundingClientRect();
+    const width = rect.width > 0 ? rect.width : this.host.clientWidth || 800;
+    const height = rect.height > 0 ? rect.height : this.host.clientHeight || 600;
+    this.chart.svgWidth(width).svgHeight(height);
+    const svg = this.mount.querySelector<SVGSVGElement>('svg.svg-chart-container');
+    svg?.setAttribute('width', String(width));
+    svg?.setAttribute('height', String(height));
+  }
+
+  private layoutDuration(): number {
+    return this.reducedMotion ||
+      !this.currentView ||
+      this.currentView.nodes.length + this.currentView.relationships.length >= 300
+      ? 0
+      : D3OrgChartRenderer.LAYOUT_DURATION;
   }
 
   private activateFromEvent(event: Event): void {
@@ -363,6 +565,6 @@ export class D3OrgChartRenderer implements ChartRenderer {
     const trigger = eventTarget.closest<HTMLElement | SVGElement>(
       '[data-activate-kind][data-activate-id]',
     );
-    return trigger && this.host.contains(trigger) ? trigger : undefined;
+    return trigger && this.mount.contains(trigger) ? trigger : undefined;
   }
 }
