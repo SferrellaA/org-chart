@@ -380,9 +380,112 @@ describe('D3OrgChartRenderer', () => {
     expect(container.querySelector('[onclick],[onmouseover],[onerror]')).toBeNull();
     expect(container.querySelector('button[data-activate-kind="node"]')).not.toBeNull();
     expect(container.querySelector('button[data-activate-kind="internal"]')).not.toBeNull();
+    expect(container.querySelector('[data-internal-id]')?.hasAttribute('aria-label')).toBe(false);
+    expect(container.querySelector('button[data-activate-kind="internal"]')?.getAttribute('aria-label'))
+      .toBe('<b>Internal</b>, internal unit, depth 1, contains subordinate organizations');
     expect(container.querySelector('button[data-activate-kind="change"]')).not.toBeNull();
     expect(container.querySelector('.org-delta-node--ghost')).not.toBeNull();
     expect(container.textContent).toContain('<script>alert(1)</script>');
+  });
+
+  it('renders a separate flat semantic tree without assigning tree roles to visual nodes', () => {
+    const host = document.createElement('div');
+    const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+    const root = node({
+      internalRows: [{
+        id: 'inside', name: 'Inside', depth: 1, diffKind: 'unchanged',
+        hasSubordinateChildren: false,
+      }],
+    });
+    renderer.render(view([root, node({ id: 'child', name: 'Child', parentId: 'root' })]));
+
+    const tree = host.querySelector<HTMLElement>('[role="tree"]')!;
+    const items = [...tree.children] as HTMLElement[];
+    expect(tree.getAttribute('aria-label')).toBe('Organization tree navigation');
+    expect(items).toHaveLength(3);
+    expect(items.every((item) => item.getAttribute('role') === 'treeitem')).toBe(true);
+    expect(items.every((item) => item.childElementCount === 0)).toBe(true);
+    expect(items.map((item) => [item.dataset.activateId, item.getAttribute('aria-level')]))
+      .toEqual([['root', '1'], ['inside', '2'], ['child', '2']]);
+    expect(items.map((item) => item.getAttribute('aria-label'))).toEqual([
+      'Root, organization, level 1',
+      'Inside, internal unit, level 2',
+      'Child, subordinate organization, level 2',
+    ]);
+    expect(items[0]!.getAttribute('aria-expanded')).toBe('true');
+
+    const visual = document.createElement('div');
+    visual.innerHTML = mocked.FakeOrgChart.instances[0]!.content?.({ data: root }) ?? '';
+    expect(visual.querySelector('[role="treeitem"]')).toBeNull();
+    expect(visual.querySelector('[data-tree-navigation-item]')).toBeNull();
+  });
+
+  it('clamps tree focus and maps activation and expansion keys to the chart', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const onActivate = vi.fn();
+    const renderer = new D3OrgChartRenderer(host, { onActivate });
+    renderer.render(view([
+      node({ internalRows: [{
+        id: 'inside', name: 'Inside', depth: 1, diffKind: 'unchanged',
+        hasSubordinateChildren: false,
+      }] }),
+      node({ id: 'child', name: 'Child', parentId: 'root' }),
+    ]));
+    const item = (id: string): HTMLElement =>
+      host.querySelector<HTMLElement>(`[data-tree-navigation-item][data-activate-id="${id}"]`)!;
+    const chart = mocked.FakeOrgChart.instances[0]!;
+
+    item('root').focus();
+    item('root').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowUp' }));
+    expect(document.activeElement).toBe(item('root'));
+    item('root').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'End' }));
+    expect(document.activeElement).toBe(item('child'));
+    item('child').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowDown' }));
+    expect(document.activeElement).toBe(item('child'));
+
+    item('root').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
+    expect(chart.calls).toContainEqual(['setCentered', 'root']);
+    expect(onActivate).toHaveBeenLastCalledWith('node', 'root', item('root'));
+
+    item('inside').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: ' ' }));
+    expect(chart.calls).toContainEqual(['setCentered', 'root']);
+    expect(onActivate).toHaveBeenLastCalledWith('internal', 'inside', item('inside'));
+
+    item('child').click();
+    expect(chart.calls).toContainEqual(['setCentered', 'child']);
+    expect(onActivate).toHaveBeenLastCalledWith('node', 'child', item('child'));
+
+    item('root').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: ' ' }));
+    expect(chart.calls).toContainEqual(['setExpanded', 'root', false]);
+    expect(item('root').getAttribute('aria-expanded')).toBe('false');
+    expect(item('inside')).toBeNull();
+    expect(item('child')).toBeNull();
+
+    item('root').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowRight' }));
+    expect(chart.calls).toContainEqual(['setExpanded', 'root', true]);
+    item('root').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowRight' }));
+    expect(document.activeElement).toBe(item('inside'));
+    item('inside').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowLeft' }));
+    expect(document.activeElement).toBe(item('root'));
+  });
+
+  it('keeps collapsed descendant branches out of navigation after re-expanding a parent', () => {
+    const host = document.createElement('div');
+    const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+    renderer.render(view([
+      node(),
+      node({ id: 'child', name: 'Child', parentId: 'root' }),
+      node({ id: 'grandchild', name: 'Grandchild', parentId: 'child' }),
+    ]));
+    const item = (id: string): HTMLElement | null =>
+      host.querySelector(`[data-tree-navigation-item][data-activate-id="${id}"]`);
+
+    item('root')!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: ' ' }));
+    item('root')!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowRight' }));
+
+    expect(item('child')?.getAttribute('aria-expanded')).toBe('false');
+    expect(item('grandchild')).toBeNull();
   });
 
   it('coerces unsafe runtime diff, depth, and count values before HTML interpolation', () => {

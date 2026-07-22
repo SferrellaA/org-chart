@@ -71,7 +71,7 @@ test('hidden internal offices remain searchable and are revealed and centered', 
   const search = page.getByRole('combobox', { name: 'Find organization' });
   await search.fill('Consular demo office');
   await page.getByRole('button', { name: 'Office of Consular Demonstrations' }).click();
-  await expect(page.locator('[data-activate-id="consular"]'))
+  await expect(page.locator('[data-internal-id="consular"] [data-activate-id="consular"]'))
     .toBeVisible();
   await expect(page.getByRole('status')).toHaveText(/Revealed Office of Consular Demonstrations/);
 });
@@ -101,7 +101,9 @@ test('keyboard activations open notes in a responsive details surface', async ({
   await page.getByRole('button', { name: 'Close details' }).click();
   await expect(node).toBeFocused();
 
-  const internal = page.getByRole('button', { name: 'State Headquarters', exact: true });
+  const internal = page.getByRole('button', {
+    name: 'State Headquarters, internal unit, depth 1', exact: true,
+  });
   await expect(internal).toHaveCount(1);
   await internal.focus();
   await internal.press('Enter');
@@ -135,13 +137,26 @@ test('keyboard activations open notes in a responsive details surface', async ({
 
 test('visible organization tree supports roving arrow traversal and activation', async ({ page }) => {
   await ready(page);
-  const tree = page.getByRole('tree', { name: 'Organization hierarchy' });
+  const tree = page.getByRole('tree', { name: 'Organization tree navigation' });
   await expect(tree).toBeVisible();
+  await expect(page.getByRole('tree')).toHaveCount(1);
+  const diagram = page.getByRole('group', { name: 'Interactive organization diagram' });
+  await expect(diagram).toBeVisible();
+  await expect(diagram.getByRole('tree')).toHaveCount(0);
   const items = tree.getByRole('treeitem');
   expect(await items.count()).toBeGreaterThan(1);
+  for (const treeitem of await items.all()) {
+    expect(await treeitem.locator('[role], button, a, input, select').count()).toBe(0);
+  }
   await expect(items.first()).toHaveAttribute('aria-level', /[1-9]/);
   await expect(items.first()).toHaveAttribute('tabindex', '0');
+  expect(await tree.evaluate((element) => element.getBoundingClientRect().width))
+    .toBeLessThanOrEqual(1);
   await items.first().focus();
+  expect(await tree.evaluate((element) => element.getBoundingClientRect().width))
+    .toBeGreaterThan(100);
+  await items.first().press('ArrowUp');
+  await expect(items.first()).toBeFocused();
   await items.first().press('ArrowDown');
   await expect(items.nth(1)).toBeFocused();
   await expect(items.nth(1)).toHaveCSS('outline-style', 'solid');
@@ -152,61 +167,84 @@ test('visible organization tree supports roving arrow traversal and activation',
   await expect(page.locator('aside.details')).toBeVisible();
   await page.getByRole('button', { name: 'Close details' }).click();
 
-  const expandable = tree.locator('[role="treeitem"][aria-expanded="true"]').first();
-  await expect(expandable).toHaveCount(1);
-  await tree.evaluate((svg) => {
-    const modes = ['display', 'visibility', 'opacity', 'hidden', 'aria-hidden', 'inert', 'rect'];
-    for (const mode of modes) {
-      const wrapper = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-      wrapper.dataset.hiddenFocusFixture = mode;
-      if (mode === 'display') wrapper.style.display = 'none';
-      if (mode === 'visibility') wrapper.style.visibility = 'hidden';
-      if (mode === 'opacity') wrapper.style.opacity = '0';
-      if (mode === 'hidden') wrapper.setAttribute('hidden', '');
-      if (mode === 'aria-hidden') wrapper.setAttribute('aria-hidden', 'true');
-      if (mode === 'inert') wrapper.setAttribute('inert', '');
-      const item = document.createElement('button');
-      item.dataset.treeNode = '';
-      item.dataset.nodeId = `hidden-${mode}`;
-      item.tabIndex = 0;
-      if (mode === 'rect') {
-        item.style.position = 'absolute';
-        item.style.width = '0';
-        item.style.height = '0';
-      }
-      wrapper.append(item);
-      svg.append(wrapper);
-    }
+  const last = items.last();
+  await last.focus();
+  await last.press('ArrowDown');
+  await expect(last).toBeFocused();
+
+  const expandable = tree.getByRole('treeitem', {
+    name: 'Department of State (illustrative), organization, level 1', exact: true,
   });
-  const nodeId = await expandable.getAttribute('data-node-id');
+  await expect(expandable).toHaveCount(1);
+  const expandedCount = await items.count();
   await expandable.focus();
   await expandable.press(' ');
-  const collapsed = tree.locator(`[role="treeitem"][data-node-id="${nodeId}"]`);
+  const collapsed = tree.getByRole('treeitem', {
+    name: 'Department of State (illustrative), organization, level 1', exact: true,
+  });
   await expect(collapsed).toHaveAttribute('aria-expanded', 'false');
   await expect(collapsed).toBeFocused();
   await expect(collapsed).toHaveCSS('outline-style', 'solid');
-  const hiddenFixtures = page.locator('[data-hidden-focus-fixture] [data-tree-node]');
-  await expect(hiddenFixtures).toHaveCount(7);
-  for (const fixture of await hiddenFixtures.all()) {
-    await expect(fixture).toHaveAttribute('tabindex', '-1');
-  }
+  expect(await tree.getByRole('treeitem').count()).toBeLessThan(expandedCount);
+  await expect(tree.getByRole('treeitem', { name: /State Headquarters, internal unit/ }))
+    .toHaveCount(0);
   await collapsed.press('ArrowRight');
-  await expect(tree.locator(`[role="treeitem"][data-node-id="${nodeId}"]`))
+  const reexpanded = tree.getByRole('treeitem', {
+    name: 'Department of State (illustrative), organization, level 1', exact: true,
+  });
+  await expect(reexpanded)
     .toHaveAttribute('aria-expanded', 'true');
-  await tree.locator(`[role="treeitem"][data-node-id="${nodeId}"]`).press('ArrowLeft');
-  await expect(tree.locator(`[role="treeitem"][data-node-id="${nodeId}"]`))
+  await reexpanded.press('ArrowRight');
+  const internalTreeitem = tree.getByRole('treeitem', {
+    name: 'State Headquarters, internal unit, level 2', exact: true,
+  });
+  await expect(internalTreeitem).toBeFocused();
+  await internalTreeitem.press(' ');
+  await expect(page.locator('.details__note')).toHaveText('Illustrative headquarters container.');
+  await page.getByRole('button', { name: 'Close details' }).click();
+  await expect(internalTreeitem).toBeFocused();
+  await internalTreeitem.press('ArrowLeft');
+  await expect(reexpanded).toBeFocused();
+
+  const subordinateTreeitem = tree.getByRole('treeitem', {
+    name: 'USAID (illustrative placement), subordinate organization, level 2', exact: true,
+  });
+  await subordinateTreeitem.click();
+  await expect(page.getByRole('heading', {
+    name: 'USAID (illustrative placement)', level: 2,
+  })).toBeVisible();
+  await page.getByRole('button', { name: 'Close details' }).click();
+  await reexpanded.focus();
+  await reexpanded.press('ArrowLeft');
+  await expect(tree.getByRole('treeitem', {
+    name: 'Department of State (illustrative), organization, level 1', exact: true,
+  }))
     .toHaveAttribute('aria-expanded', 'false');
 });
 
 test('accessibility semantics describe hierarchy, internals, relationships, and changes', async ({ page }) => {
   await ready(page);
-  const treeitems = page.getByRole('treeitem');
+  const tree = page.getByRole('tree', { name: 'Organization tree navigation' });
+  const treeitems = tree.getByRole('treeitem');
   expect(await treeitems.count()).toBeGreaterThan(0);
   for (const item of await treeitems.all()) {
     await expect(item).toHaveAttribute('aria-level');
   }
-  await expect(page.locator('[data-internal-id="state-hq"]')).toHaveAttribute(
-    'aria-label', /internal unit/i,
+  const internalButton = page.getByRole('button', {
+    name: 'State Headquarters, internal unit, depth 1', exact: true,
+  });
+  await expect(internalButton).toMatchAriaSnapshot(
+    '- button "State Headquarters, internal unit, depth 1"',
+  );
+  const treeSnapshot = await tree.ariaSnapshot();
+  expect(treeSnapshot).toContain(
+    '- treeitem "Department of State (illustrative), organization, level 1" [expanded]',
+  );
+  expect(treeSnapshot).toContain(
+    '- treeitem "State Headquarters, internal unit, level 2"',
+  );
+  expect(treeSnapshot).toContain(
+    '- treeitem "USAID (illustrative placement), subordinate organization, level 2"',
   );
   await expect(page.locator(
     '[data-relationship-id="illustrative-shared-leadership"][tabindex="0"]',
@@ -277,5 +315,5 @@ test('forced colors mode keeps the chart operable', async ({ page }) => {
   await expect(page.locator('.org-delta-connector--relationship').first())
     .toHaveCSS('stroke', /rgb|rgba/);
   await page.getByRole('button', { name: 'Fit chart' }).click();
-  await expect(page.getByRole('tree', { name: 'Organization hierarchy' })).toBeVisible();
+  await expect(page.getByRole('tree', { name: 'Organization tree navigation' })).toBeVisible();
 });

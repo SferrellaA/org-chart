@@ -30,6 +30,9 @@ export const componentStyles = `
   .details a { overflow-wrap: anywhere; }
   .org-delta-renderer-root, .org-delta-overlay { position: relative; width: 100%; height: 100%; }
   .org-delta-visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .org-delta-tree-navigation { position: absolute; z-index: 10; top: 8px; left: 8px; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .org-delta-tree-navigation:focus-within { width: min(360px, calc(100% - 16px)); height: auto; max-height: calc(100% - 16px); padding: 8px; overflow: auto; clip: auto; white-space: normal; border: 2px solid currentColor; background: Canvas; }
+  .org-delta-tree-navigation [role='treeitem'] { display: block; min-height: 44px; padding: 10px 12px; border: 1px solid currentColor; background: Canvas; color: CanvasText; }
   .org-delta-minimap { color: #334155; border: 1px solid currentColor; background: rgba(255,255,255,.9); }
   .org-delta-node { border: 2px solid #64748b; border-radius: 8px; background: #fff; }
   .org-delta-node--added, .org-delta-internal--added { border-left: 8px solid #18794e; background-image: repeating-linear-gradient(135deg, transparent 0 7px, rgba(24,121,78,.12) 7px 10px); }
