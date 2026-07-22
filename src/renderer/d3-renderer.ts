@@ -356,7 +356,8 @@ export class D3OrgChartRenderer implements ChartRenderer {
         this.dataset.activateId = encodeHierarchyActivationId(parentId, current.data.id);
         this.setAttribute('role', 'button');
         this.setAttribute('tabindex', '0');
-        const label = `${current.parent!.data.name} hierarchy to ${current.data.name}`;
+        const label =
+          `${current.parent!.data.name} subordinate relationship to ${current.data.name}`;
         this.setAttribute('aria-label', label);
         let title = this.querySelector<SVGTitleElement>('title');
         if (!title) {
@@ -478,21 +479,45 @@ export class D3OrgChartRenderer implements ChartRenderer {
     if (!svg) return;
     svg.setAttribute('role', 'tree');
     svg.setAttribute('aria-label', 'Organization hierarchy');
+    const allItems = [...this.mount.querySelectorAll<HTMLElement>('[data-tree-node]')];
+    const rovingId = allItems.find((item) => item.tabIndex === 0)?.dataset.nodeId;
+    for (const item of allItems) item.tabIndex = -1;
     const items = this.visibleTreeitems();
     if (items.length === 0) return;
     const root = this.mount.getRootNode();
     const focused = root instanceof ShadowRoot ? root.activeElement : document.activeElement;
     const current = items.find((item) => item === focused)
       ?? items.find((item) => item.dataset.nodeId === preferredId)
-      ?? items.find((item) => item.tabIndex === 0)
+      ?? items.find((item) => item.dataset.nodeId === rovingId)
       ?? items[0]!;
     for (const item of items) item.tabIndex = item === current ? 0 : -1;
   }
 
   private visibleTreeitems(): HTMLElement[] {
-    return [...this.mount.querySelectorAll<HTMLElement>('[data-tree-node]')].filter((item) => {
+    const items = [...this.mount.querySelectorAll<HTMLElement>('[data-tree-node]')];
+    const layoutRect = this.mount.getBoundingClientRect();
+    const hasBrowserLayout = layoutRect.width > 0 && layoutRect.height > 0;
+    return items.filter((item) => {
       const group = item.closest<SVGGElement>('g.node');
-      return group !== null && group.style.display !== 'none' && getComputedStyle(group).display !== 'none';
+      let current: Element | null = item;
+      let visible = group !== null;
+      while (visible && current && current !== this.mount) {
+        const style = getComputedStyle(current);
+        visible = !current.hasAttribute('hidden')
+          && !current.hasAttribute('inert')
+          && current.getAttribute('aria-hidden') !== 'true'
+          && style.display !== 'none'
+          && style.visibility !== 'hidden'
+          && style.visibility !== 'collapse'
+          && Number(style.opacity) !== 0;
+        current = current.parentElement;
+      }
+      if (visible && hasBrowserLayout) {
+        const rect = item.getBoundingClientRect();
+        visible = rect.width > 0 && rect.height > 0 && item.getClientRects().length > 0;
+      }
+      if (!visible) item.tabIndex = -1;
+      return visible;
     });
   }
 

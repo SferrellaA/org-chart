@@ -431,8 +431,12 @@ describe('D3OrgChartRenderer', () => {
       data: node({ id: 'child', name: 'Child name' }),
       parent: { data: node({ name: 'Root name' }) },
     });
-    expect(link.getAttribute('aria-label')).toBe('Root name hierarchy to Child name');
-    expect(link.querySelector('title')?.textContent).toBe('Root name hierarchy to Child name');
+    expect(link.getAttribute('aria-label')).toBe(
+      'Root name subordinate relationship to Child name',
+    );
+    expect(link.querySelector('title')?.textContent).toBe(
+      'Root name subordinate relationship to Child name',
+    );
 
     chart.linkCallback?.call(link, {
       data: node({ id: 'child', parentId: 'root', connectorSourceId: 'inside' }),

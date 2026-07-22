@@ -231,7 +231,7 @@ describe('D3OrgChartRenderer with installed d3-org-chart', () => {
 
     expect(link.getAttribute('role')).toBe('button');
     expect(link.getAttribute('tabindex')).toBe('0');
-    expect(link.getAttribute('aria-label')).toBe('root hierarchy to child');
+    expect(link.getAttribute('aria-label')).toBe('root subordinate relationship to child');
     link.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
 
     expect(onActivate).toHaveBeenCalledOnce();

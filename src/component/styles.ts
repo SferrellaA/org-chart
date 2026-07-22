@@ -47,8 +47,13 @@ export const componentStyles = `
   }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0s !important; animation-duration: 0s !important; } }
   @media (forced-colors: active) {
-    .chart-shell, header, .details, .org-delta-node, .org-delta-minimap { border-color: CanvasText; }
-    .org-delta-node--added, .org-delta-node--removed, .org-delta-node--modified { border-left-color: Highlight; }
+    :host { --org-delta-forced-colors: active; }
+    .chart-shell, header, .details, .org-delta-node, .org-delta-minimap { border-color: CanvasText; color: CanvasText; }
+    .org-delta-node { background: Canvas; forced-color-adjust: auto; }
+    .org-delta-node--added { border-left: 8px solid Highlight; }
+    .org-delta-node--removed { border-left: 8px double Highlight; }
+    .org-delta-node--modified { border-left: 8px dashed Highlight; }
+    .org-delta-connector--hierarchy, .org-delta-connector--relationship, path.link { color: CanvasText; stroke: currentColor; forced-color-adjust: auto; }
   }
 `;
 

@@ -36,6 +36,10 @@ test('proposal selection, requirements, conflicts, and diff signals work', async
   await expect(page.locator('[data-selection-status]')).toContainText(
     'Compared with: Illustrative current arrangement',
   );
+  await expect(page.getByRole('status')).toContainText(
+    'Rename and spin-out demonstration ready',
+  );
+  await expect(page.getByRole('status')).toContainText(/[1-9]\d* modified/);
   await expect(page.locator('.org-delta-node--modified')).toBeVisible();
   await expect(page.locator('.org-delta-node--modified')).toHaveCSS('border-left-style', 'dashed');
   await expect(page.getByRole('button', { name: /View changes/ }).first())
@@ -74,6 +78,8 @@ test('hidden internal offices remain searchable and are revealed and centered', 
 
 test('keyboard activations open notes in a responsive details surface', async ({ page }, testInfo) => {
   await ready(page);
+  await page.getByRole('combobox', { name: 'View' }).selectOption('historical-demo');
+  await expect(page.getByRole('status')).toContainText('Illustrative historical arrangement ready');
   const node = page.getByRole('button', { name: 'Department of State (illustrative)', exact: true });
   await node.focus();
   await node.press('Enter');
@@ -95,18 +101,36 @@ test('keyboard activations open notes in a responsive details surface', async ({
   await page.getByRole('button', { name: 'Close details' }).click();
   await expect(node).toBeFocused();
 
-  for (const target of [
-    page.getByRole('button', { name: 'State Headquarters', exact: true }),
-    page.locator('[data-activate-kind="hierarchy"]').first(),
-    page.locator('[data-relationship-id="illustrative-shared-leadership"][tabindex="0"]'),
-  ]) {
-    if (await target.count()) {
-      await target.first().focus();
-      await target.first().press('Enter');
-      await expect(page.locator('aside.details')).toBeVisible();
-      await page.getByRole('button', { name: 'Close details' }).click();
-    }
-  }
+  const internal = page.getByRole('button', { name: 'State Headquarters', exact: true });
+  await expect(internal).toHaveCount(1);
+  await internal.focus();
+  await internal.press('Enter');
+  await expect(page.locator('.details__note')).toHaveText('Illustrative headquarters container.');
+  await page.getByRole('button', { name: 'Close details' }).click();
+
+  const hierarchy = page.locator(
+    '[data-activate-kind="hierarchy"][aria-label*="subordinate relationship"]',
+  );
+  await expect(hierarchy).toHaveCount(1);
+  await hierarchy.focus();
+  await hierarchy.press('Enter');
+  await expect(page.locator('.details__kind')).toHaveText('Subordinate hierarchy');
+  await expect(page.locator('.details__note')).toHaveText('Illustrative demo placement.');
+  await page.getByRole('button', { name: 'Close details' }).click();
+
+  const relationship = page.locator(
+    '[data-relationship-id="illustrative-shared-leadership"][tabindex="0"]',
+  );
+  await expect(relationship).toHaveCount(1);
+  await relationship.focus();
+  await relationship.press('Enter');
+  await expect(page.getByRole('heading', {
+    name: 'Shared-leadership-style cross-link', level: 2,
+  })).toBeVisible();
+  await expect(page.locator('.details__note')).toHaveText(
+    'Illustrative relationship used to demonstrate cross-links; consult authoritative sources for actual command arrangements.',
+  );
+  await page.getByRole('button', { name: 'Close details' }).click();
 });
 
 test('visible organization tree supports roving arrow traversal and activation', async ({ page }) => {
@@ -120,6 +144,8 @@ test('visible organization tree supports roving arrow traversal and activation',
   await items.first().focus();
   await items.first().press('ArrowDown');
   await expect(items.nth(1)).toBeFocused();
+  await expect(items.nth(1)).toHaveCSS('outline-style', 'solid');
+  await expect(items.nth(1)).toHaveCSS('outline-width', '3px');
   await items.nth(1).press('ArrowUp');
   await expect(items.first()).toBeFocused();
   await items.first().press('Enter');
@@ -127,21 +153,49 @@ test('visible organization tree supports roving arrow traversal and activation',
   await page.getByRole('button', { name: 'Close details' }).click();
 
   const expandable = tree.locator('[role="treeitem"][aria-expanded="true"]').first();
-  if (await expandable.count()) {
-    const nodeId = await expandable.getAttribute('data-node-id');
-    await expandable.focus();
-    await expandable.press(' ');
-    const collapsed = tree.locator(`[role="treeitem"][data-node-id="${nodeId}"]`);
-    await expect(collapsed).toHaveAttribute('aria-expanded', 'false');
-    await expect(collapsed).toBeFocused();
-    await expect(collapsed).toHaveCSS('outline-style', 'solid');
-    await collapsed.press('ArrowRight');
-    await expect(tree.locator(`[role="treeitem"][data-node-id="${nodeId}"]`))
-      .toHaveAttribute('aria-expanded', 'true');
-    await tree.locator(`[role="treeitem"][data-node-id="${nodeId}"]`).press('ArrowLeft');
-    await expect(tree.locator(`[role="treeitem"][data-node-id="${nodeId}"]`))
-      .toHaveAttribute('aria-expanded', 'false');
+  await expect(expandable).toHaveCount(1);
+  await tree.evaluate((svg) => {
+    const modes = ['display', 'visibility', 'opacity', 'hidden', 'aria-hidden', 'inert', 'rect'];
+    for (const mode of modes) {
+      const wrapper = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      wrapper.dataset.hiddenFocusFixture = mode;
+      if (mode === 'display') wrapper.style.display = 'none';
+      if (mode === 'visibility') wrapper.style.visibility = 'hidden';
+      if (mode === 'opacity') wrapper.style.opacity = '0';
+      if (mode === 'hidden') wrapper.setAttribute('hidden', '');
+      if (mode === 'aria-hidden') wrapper.setAttribute('aria-hidden', 'true');
+      if (mode === 'inert') wrapper.setAttribute('inert', '');
+      const item = document.createElement('button');
+      item.dataset.treeNode = '';
+      item.dataset.nodeId = `hidden-${mode}`;
+      item.tabIndex = 0;
+      if (mode === 'rect') {
+        item.style.position = 'absolute';
+        item.style.width = '0';
+        item.style.height = '0';
+      }
+      wrapper.append(item);
+      svg.append(wrapper);
+    }
+  });
+  const nodeId = await expandable.getAttribute('data-node-id');
+  await expandable.focus();
+  await expandable.press(' ');
+  const collapsed = tree.locator(`[role="treeitem"][data-node-id="${nodeId}"]`);
+  await expect(collapsed).toHaveAttribute('aria-expanded', 'false');
+  await expect(collapsed).toBeFocused();
+  await expect(collapsed).toHaveCSS('outline-style', 'solid');
+  const hiddenFixtures = page.locator('[data-hidden-focus-fixture] [data-tree-node]');
+  await expect(hiddenFixtures).toHaveCount(7);
+  for (const fixture of await hiddenFixtures.all()) {
+    await expect(fixture).toHaveAttribute('tabindex', '-1');
   }
+  await collapsed.press('ArrowRight');
+  await expect(tree.locator(`[role="treeitem"][data-node-id="${nodeId}"]`))
+    .toHaveAttribute('aria-expanded', 'true');
+  await tree.locator(`[role="treeitem"][data-node-id="${nodeId}"]`).press('ArrowLeft');
+  await expect(tree.locator(`[role="treeitem"][data-node-id="${nodeId}"]`))
+    .toHaveAttribute('aria-expanded', 'false');
 });
 
 test('accessibility semantics describe hierarchy, internals, relationships, and changes', async ({ page }) => {
@@ -168,9 +222,32 @@ test('accessibility semantics describe hierarchy, internals, relationships, and 
   await expect(page.locator('.org-delta-node--unchanged').first()).toHaveCSS('border-left-style', /solid|double|dashed/);
   await expect(page.locator('[aria-hidden="true"] [tabindex="0"]')).toHaveCount(0);
   await expect(page.locator('[style*="display: none"] [tabindex="0"]')).toHaveCount(0);
-  const nativeControls = page.locator('button:visible, input:visible, select:visible, a:visible');
-  for (const control of await nativeControls.all()) {
-    expect(await control.evaluate((element) => (element as HTMLElement).tabIndex)).toBeGreaterThanOrEqual(0);
+  const focusTargets = page.locator(
+    '[tabindex], a[href], button, input, select, textarea',
+  );
+  for (const target of await focusTargets.all()) {
+    const state = await target.evaluate((element) => {
+      let current: Element | null = element;
+      let hidden = false;
+      let excludedByLayout = false;
+      while (current) {
+        const style = getComputedStyle(current);
+        const layoutHidden = current.hasAttribute('hidden') || current.hasAttribute('inert')
+          || style.display === 'none' || style.visibility === 'hidden'
+          || style.visibility === 'collapse';
+        excludedByLayout ||= layoutHidden;
+        hidden ||= layoutHidden || current.getAttribute('aria-hidden') === 'true'
+          || Number(style.opacity) === 0;
+        current = current.parentElement;
+      }
+      const rect = element.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) {
+        hidden = true;
+        excludedByLayout = true;
+      }
+      return { hidden, excludedByLayout, tabIndex: (element as HTMLElement).tabIndex };
+    });
+    if (state.hidden) expect(state.excludedByLayout || state.tabIndex < 0).toBe(true);
   }
 });
 
@@ -188,7 +265,17 @@ test('reduced motion removes transition and animation duration', async ({ page }
 test('forced colors mode keeps the chart operable', async ({ page }) => {
   await page.emulateMedia({ forcedColors: 'active' });
   await ready(page);
+  expect(await page.evaluate(() => matchMedia('(forced-colors: active)').matches)).toBe(true);
+  expect(await page.locator('org-delta-chart').evaluate((chart) =>
+    getComputedStyle(chart).getPropertyValue('--org-delta-forced-colors').trim()
+  )).toBe('active');
   await expect(page.locator('.chart-shell')).toBeVisible();
+  await page.getByRole('combobox', { name: 'View' }).selectOption('spin-out-proposal');
+  const modified = page.locator('.org-delta-node--modified');
+  await expect(modified).toHaveCSS('border-left-style', 'dashed');
+  await expect(modified).toHaveCSS('border-left-width', '8px');
+  await expect(page.locator('.org-delta-connector--relationship').first())
+    .toHaveCSS('stroke', /rgb|rgba/);
   await page.getByRole('button', { name: 'Fit chart' }).click();
   await expect(page.getByRole('tree', { name: 'Organization hierarchy' })).toBeVisible();
 });

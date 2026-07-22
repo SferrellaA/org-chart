@@ -27,8 +27,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm exec vite -- --host 127.0.0.1',
+    command: 'npm exec vite -- --host 127.0.0.1 --port 5173 --strictPort',
     url: 'http://127.0.0.1:5173/examples/state-department.html',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
   },
 });
