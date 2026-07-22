@@ -214,21 +214,28 @@ describe('D3OrgChartRenderer', () => {
     const host = document.createElement('div');
     const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
     const chart = mocked.FakeOrgChart.instances[0]!;
-    const nodes = [node(), node({ id: 'child', parentId: 'root' })];
+    const nodes = [
+      node(),
+      node({ id: 'child', parentId: 'root' }),
+      node({ id: 'grandchild', parentId: 'child' }),
+    ];
     renderer.render(view(nodes));
     const collapsed = chart.currentData.find(({ id }) => id === 'child')!;
-    collapsed._expanded = false;
-    chart.layoutCallback?.({ data: collapsed });
+    const grandchild = chart.currentData.find(({ id }) => id === 'grandchild')!;
+    grandchild._expanded = false;
+    chart.layoutCallback?.({ data: collapsed, _children: [{ data: grandchild }] });
 
     renderer.render(view([
       node({ name: 'Updated root' }),
       node({ id: 'child', parentId: 'root', name: 'Updated child' }),
+      node({ id: 'grandchild', parentId: 'child', name: 'Updated grandchild' }),
       node({ id: 'new', parentId: 'root' }),
     ]));
 
     const submitted = chart.calls.filter(([name]) => name === 'data').at(-1)?.[1] as
       Array<RenderNode & { _expanded?: boolean }>;
-    expect(submitted.find(({ id }) => id === 'child')?._expanded).toBe(false);
+    expect(submitted.find(({ id }) => id === 'child')?._expanded).toBe(true);
+    expect(submitted.find(({ id }) => id === 'grandchild')?._expanded).toBe(false);
     expect(submitted.find(({ id }) => id === 'new')?._expanded).toBe(true);
     expect(chart.calls.filter(([name]) => name === 'render')).toHaveLength(2);
   });

@@ -196,6 +196,53 @@ describe('ConnectorOverlay', () => {
     expect(path?.getAttribute('stroke')).toBe('currentColor');
   });
 
+  it('labels focusable internal hierarchy connectors from source and target names', () => {
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () => rect(0, 0, 500, 500);
+    anchor(host, 'data-internal-id', 'hr', rect(20, 20, 100, 50));
+    anchor(host, 'data-node-id', 'child', rect(200, 200, 100, 50));
+    const owner = {
+      ...node('owner'),
+      internalRows: [{
+        id: 'hr',
+        name: 'HR Office',
+        depth: 1,
+        diffKind: 'unchanged' as const,
+        hasSubordinateChildren: true,
+      }],
+    };
+    const child = { ...node('child', 'hr'), name: 'Child Office', parentId: 'owner' };
+    const overlay = new ConnectorOverlay(host, vi.fn());
+
+    overlay.sync([owner, child], []);
+
+    const paths = host.querySelectorAll<SVGPathElement>('[data-hierarchy-id="hr->child"]');
+    const visible = paths[0]!;
+    const hit = paths[1]!;
+    expect(hit.getAttribute('aria-label')).toBe('HR Office contains reporting line to Child Office');
+    expect(hit.getAttribute('role')).toBe('button');
+    expect(hit.getAttribute('tabindex')).toBe('0');
+    expect(visible.querySelector('title')?.textContent).toBe(
+      'HR Office contains reporting line to Child Office',
+    );
+  });
+
+  it('does not expose an unlabeled internal connector as a focus target', () => {
+    const host = document.createElement('div');
+    host.getBoundingClientRect = () => rect(0, 0, 500, 500);
+    anchor(host, 'data-internal-id', 'unknown', rect(20, 20, 100, 50));
+    anchor(host, 'data-node-id', 'child', rect(200, 200, 100, 50));
+    const overlay = new ConnectorOverlay(host, vi.fn());
+
+    overlay.sync([node('child', 'unknown')], []);
+
+    const paths = host.querySelectorAll<SVGPathElement>('[data-hierarchy-id="unknown->child"]');
+    expect(paths[1]?.hasAttribute('tabindex')).toBe(false);
+    expect(paths[1]?.hasAttribute('role')).toBe(false);
+    expect(paths[1]?.hasAttribute('aria-label')).toBe(false);
+    expect(paths[0]?.querySelector('title')).toBeNull();
+  });
+
   it('falls back through visible outer parents when the internal source is unavailable', () => {
     const host = document.createElement('div');
     host.getBoundingClientRect = () => rect(0, 0, 500, 500);

@@ -19,6 +19,10 @@ function number(value: number): string {
   return Number.isFinite(value) ? String(value) : '0';
 }
 
+function plainText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
 export function connectorPath(source: DOMRect, target: DOMRect): string {
   const sourceX = source.left + source.width / 2;
   const sourceY = source.bottom;
@@ -151,11 +155,17 @@ function appendPathPair(
     hit.setAttribute('d', pathData);
     hit.setAttribute('stroke', 'transparent');
     hit.setAttribute('stroke-width', '12');
-    hit.setAttribute('role', kind === 'relationship' ? 'link' : 'button');
-    hit.setAttribute('tabindex', '0');
+    const label = accessibleLabel === undefined ? '' : plainText(accessibleLabel);
+    if (label) {
+      hit.setAttribute('role', kind === 'relationship' ? 'link' : 'button');
+      hit.setAttribute('tabindex', '0');
+    } else {
+      hit.removeAttribute('role');
+      hit.removeAttribute('tabindex');
+    }
     hit.dataset.overlayKind = kind;
     hit.dataset.overlayId = id;
-    if (accessibleLabel !== undefined) hit.setAttribute('aria-label', accessibleLabel);
+    if (label) hit.setAttribute('aria-label', label);
     else hit.removeAttribute('aria-label');
     hit.style.pointerEvents = 'stroke';
     for (const path of [visible, hit]) {
@@ -173,9 +183,9 @@ function appendPathPair(
       visible.setAttribute(name, value);
       hit.setAttribute(name, value);
     }
-    if (accessibleLabel !== undefined) {
+    if (label) {
       const title = visible.querySelector('title') ?? document.createElementNS(SVG_NAMESPACE, 'title');
-      title.textContent = accessibleLabel;
+      title.textContent = label;
       if (!title.isConnected) visible.append(title);
     } else visible.querySelector('title')?.remove();
     if (!visible.isConnected) svg.append(visible);
@@ -228,6 +238,9 @@ export function syncOverlay(
 
   const hostRect = host.getBoundingClientRect();
   const nodesById = new Map(view.nodes.map((node) => [node.id, node]));
+  const internalNames = new Map(
+    view.nodes.flatMap((node) => node.internalRows.map((row) => [row.id, row.name] as const)),
+  );
   for (const node of view.nodes) {
     if (node.connectorSourceId === undefined) continue;
     const internalSource = findAnchor(host, 'data-internal-id', node.connectorSourceId);
@@ -238,6 +251,11 @@ export function syncOverlay(
     if (!source || !target) continue;
     const id = `${node.connectorSourceId}->${node.id}`;
     const aggregated = source.id !== node.connectorSourceId;
+    const sourceName = plainText(internalNames.get(node.connectorSourceId) ?? '');
+    const targetName = plainText(node.name);
+    const label = sourceName && targetName
+      ? `${sourceName} contains reporting line to ${targetName}`
+      : undefined;
     appendPathPair(svg, existing, retained, connectorPath(
       relativeRect(source.element.getBoundingClientRect(), hostRect, host),
       relativeRect(target.getBoundingClientRect(), hostRect, host),
@@ -246,7 +264,7 @@ export function syncOverlay(
       'data-connector-source-id': source.id,
       'data-connector-target-id': node.id,
       ...(aggregated ? { 'data-aggregated': 'true' } : {}),
-    }, aggregated);
+    }, aggregated, label);
   }
 
   for (const relationship of view.relationships) {

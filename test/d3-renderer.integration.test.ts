@@ -183,6 +183,41 @@ describe('D3OrgChartRenderer with installed d3-org-chart', () => {
     renderer.destroy();
   });
 
+  it('preserves expanded A and collapsed B after nested toggles and rerender', async () => {
+    const element = host();
+    const renderer = new D3OrgChartRenderer(element, { onActivate: vi.fn() });
+    const nested = [
+      node('root'),
+      node('A', 'root'),
+      node('B', 'A'),
+      node('C', 'B'),
+    ];
+    renderer.render({ ...view(nested), initialExpansionIds: ['root'] });
+
+    element.querySelector('[data-node-id="A"]')?.closest('g.node')
+      ?.querySelector<SVGGElement>('.node-button-g')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const bControl = element.querySelector('[data-node-id="B"]')?.closest('g.node')
+      ?.querySelector<SVGGElement>('.node-button-g');
+    expect(bControl).not.toBeNull();
+    bControl?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(element.querySelector('[data-node-id="C"]')).not.toBeNull();
+    element.querySelector('[data-node-id="B"]')?.closest('g.node')
+      ?.querySelector<SVGGElement>('.node-button-g')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    renderer.render({
+      ...view(nested.map((item) => ({ ...item, name: `${item.name} updated` }))),
+      initialExpansionIds: ['root'],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(element.querySelector('[data-node-id="A"]')).not.toBeNull();
+    expect(element.querySelector('[data-node-id="B"]')).not.toBeNull();
+    expect(element.querySelector('[data-node-id="C"]')).toBeNull();
+    renderer.destroy();
+  });
+
   it('activates an accessibly named hierarchy path by keyboard', () => {
     const element = host();
     const onActivate = vi.fn();

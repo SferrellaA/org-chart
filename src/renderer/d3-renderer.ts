@@ -19,8 +19,8 @@ interface RendererNode extends RenderNode {
 interface D3HierarchyNode {
   data: RendererNode;
   parent?: D3HierarchyNode;
-  children?: readonly D3HierarchyNode[];
-  _children?: readonly D3HierarchyNode[];
+  children?: readonly D3HierarchyNode[] | null;
+  _children?: readonly D3HierarchyNode[] | null;
 }
 
 interface OrgChartApi {
@@ -47,6 +47,7 @@ interface OrgChartApi {
   getChartState(): {
     data: readonly RendererNode[] | null;
     lastTransform: { x: number; y: number; k: number };
+    allNodes?: readonly D3HierarchyNode[];
   };
   clear(): void;
 }
@@ -249,7 +250,7 @@ export class D3OrgChartRenderer implements ChartRenderer {
         this.updateMinimapViewport();
       })
       .onExpandOrCollapse((node) => {
-        if (!isSynthetic(node.data)) this.expansion.set(node.data.id, node.data._expanded === true);
+        this.captureExpansion([node]);
         this.scheduleAfterLayout();
       })
       .nodeUpdate(function (node: D3HierarchyNode): void {
@@ -355,11 +356,7 @@ export class D3OrgChartRenderer implements ChartRenderer {
     const duration = this.layoutDuration();
     this.chart.duration(duration);
     if (this.chartHasData) {
-      for (const node of this.chart.getChartState().data ?? []) {
-        if (!isSynthetic(node) && node._expanded !== undefined) {
-          this.expansion.set(node.id, node._expanded);
-        }
-      }
+      this.captureExpansion(this.chart.getChartState().allNodes ?? []);
     }
     const initial = new Set(view.initialExpansionIds);
     const retained = new Set(view.nodes.map(({ id }) => id));
@@ -548,6 +545,17 @@ export class D3OrgChartRenderer implements ChartRenderer {
       this.currentView.nodes.length + this.currentView.relationships.length >= 300
       ? 0
       : D3OrgChartRenderer.LAYOUT_DURATION;
+  }
+
+  private captureExpansion(nodes: readonly D3HierarchyNode[]): void {
+    for (const node of nodes) {
+      for (const child of node.children ?? []) {
+        if (!isSynthetic(child.data)) this.expansion.set(child.data.id, true);
+      }
+      for (const child of node._children ?? []) {
+        if (!isSynthetic(child.data)) this.expansion.set(child.data.id, false);
+      }
+    }
   }
 
   private activateFromEvent(event: Event): void {
