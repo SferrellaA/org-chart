@@ -453,7 +453,9 @@ export class OrgDeltaChartElement extends HTMLElement {
       const child = chart.nodes.get(childId);
       const parent = chart.nodes.get(parentId);
       const edge = chart.parents.get(childId);
-      return child && parent && edge ? hierarchyDetails(child, parent, edge) : undefined;
+      return child && parent && edge?.parent === parentId
+        ? hierarchyDetails(child, parent, edge)
+        : undefined;
     }
     if (kind === 'relationship') {
       const relationship = chart.relationships.get(id)

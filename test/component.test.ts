@@ -602,6 +602,35 @@ describe('OrgDeltaChartElement', () => {
     expect(element.shadowRoot!.activeElement).not.toBe(trigger);
   });
 
+  it('closes active hierarchy details when the child is reparented', async () => {
+    const documentData = cloneValidDocument();
+    documentData.proposals[0]!.patchGroups![0]!.patches = [{
+      type: 'set-parent',
+      node: 'state-hr',
+      parent: 'state',
+      relationship: 'internal',
+    }];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+    const trigger = document.createElement('button');
+    element.shadowRoot!.querySelector('.canvas')!.append(trigger);
+    renderers[0]!.callbacks.onActivate(
+      'hierarchy',
+      encodeHierarchyActivationId('state-hq', 'state-hr'),
+      trigger,
+    );
+    expect(element.shadowRoot!.querySelector('aside h2')!.textContent)
+      .toBe('State Human Resources -> State Headquarters');
+
+    element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="proposal-a"]')!.click();
+
+    expect(element.shadowRoot!.querySelector('aside')!.hidden).toBe(true);
+    expect(element.shadowRoot!.querySelector('aside h2')).toBeNull();
+  });
+
   it('opens internal, relationship, and change details activations', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(cloneValidDocument())));
     const element = new OrgDeltaChartElement();
