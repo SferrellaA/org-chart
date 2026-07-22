@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import {
+  existsSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -75,6 +76,11 @@ describe('published package', () => {
       expect(publishedSchema.$schema).toBe(
         'https://json-schema.org/draft/2020-12/schema',
       );
+      expect(
+        existsSync(
+          join(consumerDirectory, 'node_modules/org-delta-chart/dist/viewer.html'),
+        ),
+      ).toBe(true);
 
       expect(() =>
         execFileSync(

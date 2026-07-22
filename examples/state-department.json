@@ -1,0 +1,144 @@
+{
+  "$schema": "https://org-delta-chart.dev/schema/org-delta-chart.schema.json",
+  "title": "Illustrative U.S. government organization demo",
+  "nodes": {
+    "state": {
+      "name": "Department of State (illustrative)",
+      "note": "Demo data only; this chart is not an authoritative description of government organization.",
+      "sources": [{ "label": "State Department public website", "url": "https://www.state.gov/" }],
+      "symbol": { "type": "image", "url": "https://www.state.gov/wp-content/uploads/2018/12/Seal.png", "alt": "Reserved example image symbol" }
+    },
+    "state-hq": {
+      "name": "State Headquarters",
+      "note": "Illustrative headquarters container."
+    },
+    "consular": {
+      "name": "Office of Consular Demonstrations",
+      "aliases": ["Consular demo office"],
+      "note": "Fictional office used to demonstrate an internal hierarchy."
+    },
+    "policy-lab": {
+      "name": "Policy Lab",
+      "note": "Fictional internal office used for proposal examples.",
+      "symbol": { "type": "text", "text": "PL" }
+    },
+    "usaid": {
+      "name": "USAID (illustrative placement)",
+      "note": "Placement is illustrative and should not be treated as a legal or current organizational claim.",
+      "sources": [{ "label": "USAID public website", "url": "https://www.usaid.gov/" }]
+    },
+    "nsa": {
+      "name": "NSA (context example)",
+      "note": "Included solely to demonstrate a cross-link."
+    },
+    "cybercom": {
+      "name": "U.S. Cyber Command (context example)",
+      "note": "Included solely to demonstrate a cross-link."
+    }
+  },
+  "snapshots": [
+    {
+      "id": "historical-demo",
+      "label": "Illustrative historical arrangement",
+      "nodes": {
+        "state": {}, "state-hq": {}, "consular": {}, "policy-lab": {}, "usaid": {}, "nsa": {}, "cybercom": {}
+      },
+      "hierarchy": [
+        { "child": "state-hq", "parent": "state", "relationship": "internal" },
+        { "child": "consular", "parent": "state-hq", "relationship": "internal" },
+        { "child": "policy-lab", "parent": "state-hq", "relationship": "internal" },
+        { "child": "usaid", "parent": "state", "relationship": "subordinate", "note": "Illustrative demo placement." }
+      ]
+    },
+    {
+      "id": "current",
+      "label": "Illustrative current arrangement",
+      "nodes": {
+        "state": {}, "state-hq": {}, "consular": { "note": "Illustrative current-state note." }, "policy-lab": {}, "usaid": {}, "nsa": {}, "cybercom": {}
+      },
+      "hierarchy": [
+        { "child": "state-hq", "parent": "state", "relationship": "internal", "note": "Illustrative internal reporting line." },
+        { "child": "consular", "parent": "state-hq", "relationship": "internal" },
+        { "child": "policy-lab", "parent": "state-hq", "relationship": "internal" },
+        { "child": "usaid", "parent": "state", "relationship": "subordinate", "note": "Illustrative demo placement.", "sources": [{ "label": "USAID public website (context only)", "url": "https://www.usaid.gov/" }] }
+      ]
+    }
+  ],
+  "proposals": [
+    {
+      "id": "spin-out-proposal",
+      "label": "Rename and spin-out demonstration",
+      "base": "current",
+      "patchGroups": [
+        {
+          "id": "rename-lab",
+          "label": "Rename the fictional Policy Lab",
+          "defaultSelected": true,
+          "locked": true,
+          "note": "Required illustrative naming change.",
+          "patches": [{ "type": "set-node", "node": "policy-lab", "value": { "name": "Policy Innovation Office" }, "semantic": "rename", "relatedNodes": ["state-hq"] }]
+        },
+        {
+          "id": "spin-out-lab",
+          "label": "Spin out as a subordinate organization",
+          "defaultSelected": true,
+          "requires": ["rename-lab"],
+          "conflictsWith": ["retain-internal-lab"],
+          "note": "Illustrative structural alternative, not a real proposal.",
+          "sources": [{ "label": "Demo methodology", "url": "https://example.com/org-delta-chart-demo" }],
+          "patches": [{ "type": "set-parent", "node": "policy-lab", "parent": "state", "relationship": "subordinate", "note": "Fictional spin-out for demonstration.", "semantic": "spin-out", "relatedNodes": ["state-hq", "state"] }]
+        },
+        {
+          "id": "retain-internal-lab",
+          "label": "Retain as an internal office",
+          "conflictsWith": ["spin-out-lab"],
+          "note": "Alternative to the fictional spin-out.",
+          "patches": [{ "type": "set-parent", "node": "policy-lab", "parent": "state-hq", "relationship": "internal", "semantic": "retain-internal" }]
+        }
+      ]
+    },
+    {
+      "id": "complete-branch",
+      "label": "Complete illustrative branch",
+      "base": "current",
+      "snapshot": {
+        "nodes": {
+          "state": {}, "state-hq": {}, "consular": {}, "policy-lab": { "name": "Policy Innovation Office" }, "usaid": {}, "nsa": {}, "cybercom": {}
+        },
+        "hierarchy": [
+          { "child": "state-hq", "parent": "state", "relationship": "internal" },
+          { "child": "consular", "parent": "state-hq", "relationship": "internal" },
+          { "child": "policy-lab", "parent": "state", "relationship": "subordinate", "note": "Fictional complete-state branch." },
+          { "child": "usaid", "parent": "state", "relationship": "subordinate" }
+        ]
+      }
+    },
+    {
+      "id": "nested-branch",
+      "label": "Nested proposal branch",
+      "base": "complete-branch",
+      "patches": [{ "type": "set-node", "node": "policy-lab", "value": { "note": "Nested illustrative follow-up proposal." }, "semantic": "nested-follow-up" }]
+    }
+  ],
+  "relationships": [
+    {
+      "id": "illustrative-shared-leadership",
+      "type": "shared-leadership-style",
+      "source": "nsa",
+      "target": "cybercom",
+      "label": "Shared-leadership-style cross-link",
+      "note": "Illustrative relationship used to demonstrate cross-links; consult authoritative sources for actual command arrangements.",
+      "sources": [{ "label": "U.S. Cyber Command public website", "url": "https://www.cybercom.mil/" }]
+    }
+  ],
+  "zones": [
+    {
+      "id": "reserved-demo-zone",
+      "label": "Reserved demonstration zone",
+      "nodes": ["state-hq", "consular", "policy-lab"],
+      "note": "Zone styling is accepted by the format but is not rendered in this example.",
+      "style": { "fill": "#e8eef8" }
+    }
+  ],
+  "presentation": { "initialExpansionDepth": 2, "focusNodes": ["state"] }
+}

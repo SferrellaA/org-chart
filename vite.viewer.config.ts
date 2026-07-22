@@ -1,11 +1,11 @@
 import { defineConfig } from 'vite';
+import { resolve } from 'node:path';
 
 export default defineConfig({
+  base: './',
   build: {
-    lib: {
-      entry: 'src/index.ts',
-      formats: ['es'],
-      fileName: 'org-delta-chart',
+    rollupOptions: {
+      input: resolve(import.meta.dirname, 'viewer.html'),
     },
     emptyOutDir: false,
     sourcemap: true,

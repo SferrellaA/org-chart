@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Illustrative State Department Organization Chart</title>
+    <style>
+      org-delta-chart { display: block; height: 70vh; }
+      iframe { height: 60vh; }
+    </style>
+  </head>
+  <body>
+    <h1>Illustrative organization chart</h1>
+    <p>This demonstration data is illustrative and is not an authoritative description of any agency.</p>
+    <org-delta-chart src="./state-department.json"></org-delta-chart>
+    <script type="module" src="/src/index.ts"></script>
+    <section>
+      <h2>Iframe viewer</h2>
+      <p><code>&lt;iframe src="/viewer.html?src=/examples/state-department.json" title="Illustrative organization chart"&gt;&lt;/iframe&gt;</code></p>
+      <iframe src="/viewer.html?src=/examples/state-department.json" title="Illustrative organization chart"></iframe>
+    </section>
+  </body>
+</html>
