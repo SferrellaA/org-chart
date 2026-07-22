@@ -393,8 +393,11 @@ describe('OrgDeltaChartElement', () => {
 
     element.shadowRoot!.querySelector<HTMLInputElement>('[data-show-internal]')!.click();
     const search = element.shadowRoot!.querySelector<HTMLInputElement>('[data-search]')!;
+    const renderCount = renderers[0]!.views.length;
     search.value = 'State Human Resources';
     search.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(renderers[0]!.views).toHaveLength(renderCount);
+    search.dispatchEvent(new Event('change', { bubbles: true }));
     expect(renderers[0]!.revealed).toContain('state');
     (element.shadowRoot!.querySelector('[data-search-result="state-hr"]') as HTMLButtonElement).click();
     expect(renderers[0]!.views.at(-1)!.nodes.find((node) => node.id === 'state')!.internalRows
@@ -519,7 +522,12 @@ describe('OrgDeltaChartElement', () => {
     element.shadowRoot!.querySelector('.canvas')!.append(trigger);
     renderers[0]!.callbacks.onActivate('node', 'state', trigger);
 
-    element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="proposal-a"]')!.click();
+    const invalidView = element.shadowRoot!.querySelector<HTMLButtonElement>(
+      '[data-view-id="proposal-a"]',
+    )!;
+    expect(invalidView.getAttribute('aria-invalid')).toBe('true');
+    expect(invalidView.textContent).toContain('invalid');
+    invalidView.click();
     expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent).toContain('is invalid');
     expect(renderers[0]!.destroyed).toBe(true);
     expect(element.shadowRoot!.querySelector('.canvas')!.childElementCount).toBe(0);
@@ -560,7 +568,97 @@ describe('OrgDeltaChartElement', () => {
     const search = element.shadowRoot!.querySelector<HTMLInputElement>('input[type="search"]')!;
     expect(search.getAttribute('list')).toBe('org-search-results');
     const list = element.shadowRoot!.querySelector<HTMLDataListElement>('datalist#org-search-results')!;
-    expect([...list.options].map((option) => option.value)).toContain('State Human Resources');
+    expect(list.options).toHaveLength(0);
+  });
+
+  it('filters 5,000 search entries locally, bounds results, and commits only exact unique matches', async () => {
+    const documentData = cloneValidDocument();
+    documentData.nodes = Object.fromEntries(Array.from({ length: 5_000 }, (_, index) => [
+      `org-${index}`,
+      {
+        name: `Organization ${index}`,
+        aliases: index < 2 ? ['common alias', `alias-${index}`] : [`alias-${index}`],
+      },
+    ]));
+    documentData.snapshots = [{
+      id: 'current',
+      label: 'Current',
+      nodes: Object.fromEntries(Array.from({ length: 5_000 }, (_, index) => [`org-${index}`, {}])),
+      hierarchy: [],
+    }];
+    documentData.proposals = [];
+    documentData.relationships = [];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+    const renderer = renderers[0]!;
+    const search = element.shadowRoot!.querySelector<HTMLInputElement>('[data-search]')!;
+
+    search.value = '   ';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(element.shadowRoot!.querySelectorAll('datalist option')).toHaveLength(0);
+    expect(element.shadowRoot!.querySelectorAll('[data-search-result]')).toHaveLength(0);
+    expect(renderer.views).toHaveLength(1);
+
+    search.value = 'organization';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(element.shadowRoot!.querySelectorAll('datalist option')).toHaveLength(50);
+    expect(element.shadowRoot!.querySelectorAll('[data-search-result]')).toHaveLength(50);
+    expect(renderer.views).toHaveLength(1);
+
+    search.value = 'common alias';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    search.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(element.shadowRoot!.querySelectorAll('[data-search-result]')).toHaveLength(2);
+    expect(renderer.views).toHaveLength(1);
+
+    search.value = 'alias-10';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(renderer.views).toHaveLength(1);
+    search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(renderer.views).toHaveLength(2);
+    expect(renderer.revealed).toEqual(['org-10']);
+    search.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(renderer.views).toHaveLength(2);
+    expect(renderer.revealed).toEqual(['org-10']);
+  });
+
+  it('preserves focused view, display, and patch controls across rerenders', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(cloneValidDocument())));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+
+    const internal = element.shadowRoot!.querySelector<HTMLInputElement>('[data-show-internal]')!;
+    internal.focus();
+    internal.click();
+    expect((element.shadowRoot!.activeElement as HTMLElement).dataset.control).toBe('show-internal');
+
+    const proposal = element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="proposal-a"]')!;
+    proposal.focus();
+    proposal.click();
+    expect((element.shadowRoot!.activeElement as HTMLElement).dataset.key).toBe('proposal-a');
+
+    const patch = element.shadowRoot!.querySelector<HTMLInputElement>(
+      '[data-patch-group="shared-leadership-group"]',
+    )!;
+    patch.focus();
+    patch.click();
+    expect((element.shadowRoot!.activeElement as HTMLElement).dataset.key)
+      .toBe('shared-leadership-group');
+
+    const search = element.shadowRoot!.querySelector<HTMLInputElement>('[data-search]')!;
+    search.value = 'leadership';
+    search.focus();
+    search.setSelectionRange(2, 7);
+    element.setAttribute('show-relationships', 'false');
+    const restoredSearch = element.shadowRoot!.querySelector<HTMLInputElement>('[data-search]')!;
+    expect(element.shadowRoot!.activeElement).toBe(restoredSearch);
+    expect(restoredSearch.value).toBe('leadership');
+    expect([restoredSearch.selectionStart, restoredSearch.selectionEnd]).toEqual([2, 7]);
   });
 
   it('refreshes active details after a view update changes the entity', async () => {
@@ -579,9 +677,39 @@ describe('OrgDeltaChartElement', () => {
     element.shadowRoot!.querySelector('.canvas')!.append(trigger);
     renderers[0]!.callbacks.onActivate('node', 'state', trigger);
 
-    element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="proposal-a"]')!.click();
+    const proposal = element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="proposal-a"]')!;
+    proposal.focus();
+    proposal.click();
 
     expect(element.shadowRoot!.querySelector('aside h2')!.textContent).toBe('Renamed State');
+    expect((element.shadowRoot!.activeElement as HTMLElement).dataset.key).toBe('proposal-a');
+  });
+
+  it('uses remembered parent selections for immediate and explicit nested baselines', async () => {
+    const documentData = cloneValidDocument();
+    documentData.proposals.push({
+      id: 'proposal-b',
+      label: 'Nested proposal',
+      base: 'proposal-a',
+      patchGroups: [{ id: 'nested', label: 'Nested changes', patches: [] }],
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+
+    element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="proposal-a"]')!.click();
+    element.shadowRoot!.querySelector<HTMLInputElement>(
+      '[data-patch-group="shared-leadership-group"]',
+    )!.click();
+    element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="proposal-b"]')!.click();
+    expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent)
+      .toContain('0 modified');
+
+    element.setAttribute('compare-to', 'proposal-a');
+    expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent)
+      .toContain('0 modified');
   });
 
   it('closes active details when a view update removes the entity', async () => {

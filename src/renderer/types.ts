@@ -53,6 +53,7 @@ export interface RenderRelationship {
 export interface SearchEntry {
   id: string;
   label: string;
+  aliases: readonly string[];
   hiddenInternal: boolean;
   ownerId: string;
 }

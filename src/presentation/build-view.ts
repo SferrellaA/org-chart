@@ -240,12 +240,19 @@ export function buildRenderView(
     searchEntries.push({
       id,
       label: node.name,
+      aliases: node.aliases ? [...node.aliases] : [],
       hiddenInternal: projection.internal && !visibleInternal.has(id),
       ownerId: projection.outerId,
     });
   }
   for (const [id, node] of ghostNodes) {
-    searchEntries.push({ id, label: node.name, hiddenInternal: false, ownerId: id });
+    searchEntries.push({
+      id,
+      label: node.name,
+      aliases: node.aliases ? [...node.aliases] : [],
+      hiddenInternal: false,
+      ownerId: id,
+    });
   }
 
   const relationships: RenderRelationship[] = [];

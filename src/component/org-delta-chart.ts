@@ -52,7 +52,6 @@ function selectionsFor(
   document: OrgDocument,
   viewId: string,
   selections: ReadonlyMap<string, PatchSelection>,
-  remembered: boolean,
 ): string[] {
   const proposals = new Map(document.proposals.map((proposal) => [proposal.id, proposal]));
   const chain: Proposal[] = [];
@@ -64,7 +63,7 @@ function selectionsFor(
     proposal = proposals.get(proposal.base);
   }
   return chain.flatMap((item) =>
-    (remembered ? selections.get(item.id) : undefined)?.selected ?? initialPatchSelection(item).selected
+    selections.get(item.id)?.selected ?? initialPatchSelection(item).selected
   );
 }
 
@@ -72,11 +71,10 @@ function resolve(
   document: OrgDocument,
   viewId: string,
   selections: ReadonlyMap<string, PatchSelection>,
-  remembered: boolean,
 ): ResolvedChart {
   return resolveView(document, {
     viewId,
-    selectedGroups: selectionsFor(document, viewId, selections, remembered),
+    selectedGroups: selectionsFor(document, viewId, selections),
   });
 }
 
@@ -103,7 +101,6 @@ export class OrgDeltaChartElement extends HTMLElement {
   private showRelationships = true;
   private readonly patchSelections = new Map<string, PatchSelection>();
   private readonly revealedInternalIds = new Set<string>();
-  private searchQuery = '';
   private renderView: RenderView | undefined;
   private activeDetails: ActiveDetails | undefined;
 
@@ -175,7 +172,6 @@ export class OrgDeltaChartElement extends HTMLElement {
         this.showRelationships = booleanAttribute(this, 'show-relationships');
         this.patchSelections.clear();
         this.revealedInternalIds.clear();
-        this.searchQuery = '';
         this.updateChart();
       })
       .catch((error: unknown) => {
@@ -254,8 +250,8 @@ export class OrgDeltaChartElement extends HTMLElement {
         ? selectedProposal.base
         : selectedId;
     try {
-      const selected = resolve(documentData, selectedId, this.patchSelections, true);
-      const baseline = resolve(documentData, baselineId, this.patchSelections, false);
+      const selected = resolve(documentData, selectedId, this.patchSelections);
+      const baseline = resolve(documentData, baselineId, this.patchSelections);
       const diff = diffCharts(baseline, selected);
       const view = buildRenderView(selected, diff, {
         showInternal: this.showInternal,
@@ -328,7 +324,6 @@ export class OrgDeltaChartElement extends HTMLElement {
       showInternal: this.showInternal,
       showRelationships: this.showRelationships,
       searchEntries,
-      searchQuery: this.searchQuery,
     }, this.controlHandlers);
     const status = this.template.toolbar.querySelector('[data-selection-status]');
     this.template.selectionStatus.replaceChildren(status ?? '');
@@ -338,7 +333,6 @@ export class OrgDeltaChartElement extends HTMLElement {
     selectView: (id) => {
       this.selectedViewId = id;
       this.revealedInternalIds.clear();
-      this.searchQuery = '';
       this.updateChart();
     },
     togglePatchGroup: (id, checked) => {
@@ -362,20 +356,6 @@ export class OrgDeltaChartElement extends HTMLElement {
       this.showRelationships = checked;
       this.updateChart();
     },
-    setSearchQuery: (query) => {
-      this.searchQuery = query;
-      this.updateChart();
-      const normalized = query.trim().toLocaleLowerCase();
-      const exact = [...(this.selected?.nodes.values() ?? [])].find((node) =>
-        node.id.toLocaleLowerCase() === normalized
-        || node.name.toLocaleLowerCase() === normalized
-        || node.aliases?.some((alias) => alias.toLocaleLowerCase() === normalized)
-      );
-      if (exact) this.controlHandlers.revealSearchResult(exact.id);
-      const input = this.template.toolbar.querySelector<HTMLInputElement>('[data-search]');
-      input?.focus();
-      input?.setSelectionRange(query.length, query.length);
-    },
     revealSearchResult: (id) => {
       this.revealedInternalIds.add(id);
       let ancestor = this.selected?.parents.get(id)?.parent;
@@ -390,7 +370,6 @@ export class OrgDeltaChartElement extends HTMLElement {
       this.template.status.textContent = node ? `Revealed ${node.name}.` : `Revealed ${id}.`;
     },
     clearSearch: () => {
-      this.searchQuery = '';
       this.revealedInternalIds.clear();
       this.updateChart();
     },
@@ -405,10 +384,14 @@ export class OrgDeltaChartElement extends HTMLElement {
     }
   };
 
-  private showActiveDetails(item: DetailsItem, trigger: HTMLElement | SVGElement): void {
+  private showActiveDetails(
+    item: DetailsItem,
+    trigger: HTMLElement | SVGElement,
+    focusHeading = true,
+  ): void {
     renderDetailsPanel(this.template.details, item, trigger, () => {
       this.activeDetails = undefined;
-    });
+    }, focusHeading);
   }
 
   private refreshActiveDetails(): void {
@@ -436,7 +419,7 @@ export class OrgDeltaChartElement extends HTMLElement {
           && candidate.getAttribute('data-activate-id') === active.id
         );
     active.trigger = currentTrigger ?? (active.trigger.isConnected ? active.trigger : this.template.canvas);
-    this.showActiveDetails(details, active.trigger);
+    this.showActiveDetails(details, active.trigger, false);
   }
 
   private detailsFor(kind: ActivationKind, id: string): DetailsItem | undefined {

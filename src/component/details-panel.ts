@@ -37,6 +37,7 @@ export function renderDetailsPanel(
   item: DetailsItem,
   trigger: HTMLElement | SVGElement,
   onClose?: () => void,
+  focusHeading = true,
 ): void {
   closeDetailsPanel(container, false);
   const header = document.createElement('div');
@@ -91,5 +92,5 @@ export function renderDetailsPanel(
   container.addEventListener('keydown', keyHandler);
   states.set(container, { trigger, closeButton: close, clickHandler, keyHandler });
   container.hidden = false;
-  title.focus();
+  if (focusHeading) title.focus();
 }

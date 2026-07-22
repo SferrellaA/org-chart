@@ -16,7 +16,7 @@ export function generateRendererStressView(count = 5_000): RenderView {
     nodes,
     relationships: [],
     searchEntries: nodes.map(({ id, name }) => ({
-      id, label: name, hiddenInternal: false, ownerId: id,
+      id, label: name, aliases: [], hiddenInternal: false, ownerId: id,
     })),
     initialExpansionIds: nodes.slice(0, Math.min(size, 341)).map(({ id }) => id),
   };

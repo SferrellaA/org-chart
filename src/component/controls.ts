@@ -18,7 +18,6 @@ export interface ControlsState {
   showInternal: boolean;
   showRelationships: boolean;
   searchEntries: readonly SearchEntry[];
-  searchQuery: string;
 }
 
 export interface ControlsHandlers {
@@ -27,7 +26,6 @@ export interface ControlsHandlers {
   showPatchGroup(group: PatchGroup, trigger: HTMLElement): void;
   setShowInternal(checked: boolean): void;
   setShowRelationships(checked: boolean): void;
-  setSearchQuery(query: string): void;
   revealSearchResult(id: string): void;
   clearSearch(): void;
   fit(): void;
@@ -42,6 +40,11 @@ function checkbox(labelText: string, checked: boolean, dataName: string): HTMLLa
   input.dataset[dataName] = '';
   label.append(input, document.createTextNode(labelText));
   return label;
+}
+
+function identify(element: HTMLElement, control: string, key = control): void {
+  element.dataset.control = control;
+  element.dataset.key = key;
 }
 
 function sourceSummary(sources: readonly Source[] | undefined): string {
@@ -70,6 +73,17 @@ export function renderControls(
   state: ControlsState,
   handlers: ControlsHandlers,
 ): void {
+  const root = container.getRootNode();
+  const activeElement = root instanceof ShadowRoot ? root.activeElement : document.activeElement;
+  const active = activeElement instanceof HTMLElement && container.contains(activeElement)
+    ? {
+        control: activeElement.dataset.control,
+        key: activeElement.dataset.key,
+        selectionStart: activeElement instanceof HTMLInputElement ? activeElement.selectionStart : null,
+        selectionEnd: activeElement instanceof HTMLInputElement ? activeElement.selectionEnd : null,
+      }
+    : undefined;
+  const previousSearch = container.querySelector<HTMLInputElement>('[data-control="search"]')?.value ?? '';
   const fragment = document.createDocumentFragment();
   const requiredByLocked = lockedRequirements(state.patchGroups);
   const viewControl = document.createElement('div');
@@ -81,9 +95,13 @@ export function renderControls(
       const button = document.createElement('button');
       button.type = 'button';
       button.dataset.viewId = view.id;
-      button.textContent = view.label;
+      identify(button, 'view', view.id);
+      button.textContent = view.invalid ? `${view.label} (invalid view)` : view.label;
       button.setAttribute('aria-pressed', String(view.id === state.selectedViewId));
-      if (view.invalid) button.className = 'view-control__invalid';
+      if (view.invalid) {
+        button.className = 'view-control__invalid';
+        button.setAttribute('aria-invalid', 'true');
+      }
       button.addEventListener('click', () => handlers.selectView(view.id));
       viewControl.append(button);
     }
@@ -92,10 +110,15 @@ export function renderControls(
     label.textContent = 'View ';
     const select = document.createElement('select');
     select.dataset.viewSelect = '';
+    identify(select, 'view-select');
+    if (state.views.some((view) => view.id === state.selectedViewId && view.invalid)) {
+      select.setAttribute('aria-invalid', 'true');
+    }
     for (const view of state.views) {
       const option = document.createElement('option');
       option.value = view.id;
       option.textContent = view.invalid ? `${view.label} (invalid)` : view.label;
+      if (view.invalid) option.setAttribute('aria-invalid', 'true');
       option.selected = view.id === state.selectedViewId;
       select.append(option);
     }
@@ -123,6 +146,7 @@ export function renderControls(
       const input = document.createElement('input');
       input.type = 'checkbox';
       input.dataset.patchGroup = group.id;
+      identify(input, 'patch-group', group.id);
       input.checked = state.patchSelection.selected.includes(group.id);
       const reason = group.locked
         ? `Required change; ${group.label} is locked on.`
@@ -146,6 +170,7 @@ export function renderControls(
         const about = document.createElement('button');
         about.type = 'button';
         about.dataset.patchGroupAbout = group.id;
+        identify(about, 'patch-group-about', group.id);
         about.textContent = `About ${group.label}`;
         about.title = `${group.note ?? ''}${sourceSummary(group.sources)}`.trim();
         about.addEventListener('click', () => handlers.showPatchGroup(group, about));
@@ -159,6 +184,7 @@ export function renderControls(
   const exploration = document.createElement('div');
   exploration.className = 'exploration-controls';
   const internalLabel = checkbox('Show internal units', state.showInternal, 'showInternal');
+  identify(internalLabel.querySelector('input')!, 'show-internal');
   internalLabel.querySelector('input')!.addEventListener('change', (event) => {
     handlers.setShowInternal((event.currentTarget as HTMLInputElement).checked);
   });
@@ -167,6 +193,7 @@ export function renderControls(
     state.showRelationships,
     'showRelationships',
   );
+  identify(relationshipLabel.querySelector('input')!, 'show-relationships');
   relationshipLabel.querySelector('input')!.addEventListener('change', (event) => {
     handlers.setShowRelationships((event.currentTarget as HTMLInputElement).checked);
   });
@@ -174,6 +201,7 @@ export function renderControls(
   const fit = document.createElement('button');
   fit.type = 'button';
   fit.dataset.fit = '';
+  identify(fit, 'fit');
   fit.textContent = 'Fit chart';
   fit.addEventListener('click', handlers.fit);
   exploration.append(fit);
@@ -183,47 +211,97 @@ export function renderControls(
   const search = document.createElement('input');
   search.type = 'search';
   search.dataset.search = '';
-  search.value = state.searchQuery;
+  identify(search, 'search');
+  search.value = previousSearch;
   search.setAttribute('list', 'org-search-results');
   search.setAttribute('autocomplete', 'off');
   search.setAttribute('aria-controls', 'org-chart-search-results');
-  search.addEventListener('input', () => handlers.setSearchQuery(search.value));
   searchLabel.append(search);
   exploration.append(searchLabel);
   const datalist = document.createElement('datalist');
   datalist.id = 'org-search-results';
-  for (const entry of state.searchEntries) {
-    const option = document.createElement('option');
-    option.value = entry.label;
-    option.label = entry.id;
-    datalist.append(option);
-  }
   exploration.append(datalist);
-  if (state.searchQuery) {
-    const clear = document.createElement('button');
-    clear.type = 'button';
-    clear.dataset.searchClear = '';
-    clear.textContent = 'Clear search';
-    clear.addEventListener('click', handlers.clearSearch);
-    exploration.append(clear);
-    const results = document.createElement('ul');
-    results.id = 'org-chart-search-results';
-    results.className = 'search-results';
-    const query = state.searchQuery.trim().toLocaleLowerCase();
-    for (const entry of state.searchEntries.filter((item) =>
-      item.label.toLocaleLowerCase().includes(query) || item.id.toLocaleLowerCase().includes(query)
-    )) {
+  const clear = document.createElement('button');
+  clear.type = 'button';
+  clear.dataset.searchClear = '';
+  identify(clear, 'search-clear');
+  clear.textContent = 'Clear search';
+  exploration.append(clear);
+  const results = document.createElement('ul');
+  results.id = 'org-chart-search-results';
+  results.className = 'search-results';
+  exploration.append(results);
+
+  const matchingEntries = (query: string): SearchEntry[] => {
+    const normalized = query.trim().toLocaleLowerCase();
+    if (!normalized) return [];
+    return state.searchEntries.filter((entry) =>
+      entry.id.toLocaleLowerCase().includes(normalized)
+      || entry.label.toLocaleLowerCase().includes(normalized)
+      || entry.aliases.some((alias) => alias.toLocaleLowerCase().includes(normalized))
+    );
+  };
+  let lastCommitted: string | undefined;
+  const filterSearch = (): void => {
+    const matches = matchingEntries(search.value).slice(0, 50);
+    datalist.replaceChildren(...matches.map((entry) => {
+      const option = document.createElement('option');
+      option.value = entry.label;
+      option.label = entry.id;
+      return option;
+    }));
+    results.replaceChildren(...matches.map((entry) => {
       const result = document.createElement('button');
       result.type = 'button';
       result.dataset.searchResult = entry.id;
+      identify(result, 'search-result', entry.id);
       result.textContent = entry.label;
-      result.addEventListener('click', () => handlers.revealSearchResult(entry.id));
+      result.addEventListener('click', () => {
+        lastCommitted = `${search.value.trim().toLocaleLowerCase()}\0${entry.id}`;
+        handlers.revealSearchResult(entry.id);
+      });
       const item = document.createElement('li');
       item.append(result);
-      results.append(item);
-    }
-    exploration.append(results);
-  }
+      return item;
+    }));
+    clear.hidden = search.value.trim() === '';
+  };
+  const commitExact = (): boolean => {
+    const normalized = search.value.trim().toLocaleLowerCase();
+    if (!normalized) return false;
+    const exact = state.searchEntries.filter((entry) =>
+      entry.id.toLocaleLowerCase() === normalized
+      || entry.label.toLocaleLowerCase() === normalized
+      || entry.aliases.some((alias) => alias.toLocaleLowerCase() === normalized)
+    );
+    if (exact.length !== 1) return false;
+    const key = `${normalized}\0${exact[0]!.id}`;
+    if (lastCommitted === key) return true;
+    lastCommitted = key;
+    handlers.revealSearchResult(exact[0]!.id);
+    return true;
+  };
+  search.addEventListener('input', filterSearch);
+  search.addEventListener('change', commitExact);
+  search.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && commitExact()) event.preventDefault();
+  });
+  clear.addEventListener('click', () => {
+    search.value = '';
+    filterSearch();
+    handlers.clearSearch();
+  });
+  filterSearch();
   fragment.append(exploration);
   container.replaceChildren(fragment);
+  if (active?.control) {
+    const replacement = [...container.querySelectorAll<HTMLElement>('[data-control]')]
+      .find((candidate) =>
+        candidate.dataset.control === active.control && candidate.dataset.key === active.key
+      );
+    replacement?.focus();
+    if (replacement instanceof HTMLInputElement && active.selectionStart !== null) {
+      replacement.setSelectionRange(active.selectionStart, active.selectionEnd);
+    }
+  }
 }
