@@ -228,6 +228,28 @@ describe('OrgDeltaChartElement', () => {
     expect(renderers).toHaveLength(0);
   });
 
+  it('recovers from an invalid initial view when the attribute is removed without refetching', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const documentData = cloneValidDocument();
+    documentData.proposals[0]!.patchGroups![0]!.patches[0] = {
+      type: 'set-node', node: 'missing', value: { name: 'Invalid' },
+    };
+    const fetchMock = vi.fn().mockResolvedValue(response(documentData));
+    vi.stubGlobal('fetch', fetchMock);
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    element.setAttribute('initial-view', 'proposal-a');
+    document.body.append(element);
+    await settle();
+
+    element.removeAttribute('initial-view');
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(renderers).toHaveLength(1);
+    expect(renderers[0]!.views[0]!.nodes.map((node) => node.id)).toContain('state');
+    expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent).toContain('ready');
+  });
+
   it('shows the contextual validation error for an explicitly selected invalid baseline', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const documentData = cloneValidDocument();
@@ -244,6 +266,28 @@ describe('OrgDeltaChartElement', () => {
     expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent)
       .toContain('proposal/proposal-a/patchGroups/0/patches/0/node: unknown node "missing"');
     expect(renderers).toHaveLength(0);
+  });
+
+  it('recovers from an invalid baseline when the attribute is fixed without refetching', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const documentData = cloneValidDocument();
+    documentData.proposals[0]!.patchGroups![0]!.patches[0] = {
+      type: 'set-node', node: 'missing', value: { name: 'Invalid' },
+    };
+    const fetchMock = vi.fn().mockResolvedValue(response(documentData));
+    vi.stubGlobal('fetch', fetchMock);
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    element.setAttribute('compare-to', 'proposal-a');
+    document.body.append(element);
+    await settle();
+
+    element.setAttribute('compare-to', 'current');
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(renderers).toHaveLength(1);
+    expect(renderers[0]!.views[0]!.nodes.map((node) => node.id)).toContain('state');
+    expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent).toContain('ready');
   });
 
   it.each([

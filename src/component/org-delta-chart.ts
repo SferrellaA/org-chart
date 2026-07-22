@@ -104,14 +104,14 @@ export class OrgDeltaChartElement extends HTMLElement {
     this.clearVisualization();
     const src = this.getAttribute('src');
     if (!src) {
-      this.showError('Unable to load chart: src is required.', new Error('Missing src attribute'));
+      this.showFatalError('Unable to load chart: src is required.', new Error('Missing src attribute'));
       return;
     }
     let url: URL;
     try {
       url = new URL(src, document.baseURI);
     } catch (error) {
-      this.showError('Unable to load chart: invalid src.', error);
+      this.showFatalError('Unable to load chart: invalid src.', error);
       return;
     }
     const request = new AbortController();
@@ -127,7 +127,7 @@ export class OrgDeltaChartElement extends HTMLElement {
         if (!this.isConnected || request.signal.aborted || version !== this.requestVersion) return;
         const validation = validateDocument(input);
         if (!validation.ok) {
-          this.showError('Unable to display chart: invalid document.', validation.errors);
+          this.showFatalError('Unable to display chart: invalid document.', validation.errors);
           return;
         }
         this.documentData = validation.value;
@@ -139,20 +139,24 @@ export class OrgDeltaChartElement extends HTMLElement {
         const message = error instanceof HttpError
           ? `Unable to load chart (HTTP ${error.status}).`
           : 'Unable to load chart.';
-        this.showError(message, error);
+        this.showFatalError(message, error);
       });
   }
 
-  private clearVisualization(): void {
+  private clearView(): void {
     this.activationVersion += 1;
     this.renderer?.destroy();
     this.renderer = undefined;
     this.template.canvas.replaceChildren();
     this.selected = undefined;
     this.diff = undefined;
+    closeDetailsPanel(this.template.details);
+  }
+
+  private clearVisualization(): void {
+    this.clearView();
     this.documentData = undefined;
     this.viewErrors = new Map();
-    closeDetailsPanel(this.template.details);
     this.template.title.textContent = 'Organization chart';
     this.template.shell.setAttribute('aria-label', 'Organization chart');
   }
@@ -166,12 +170,12 @@ export class OrgDeltaChartElement extends HTMLElement {
     ]);
     const requested = this.getAttribute('initial-view');
     if (requested !== null && !allIds.has(requested)) {
-      this.showError(`Unable to display chart: view "${requested}" does not exist.`, requested);
+      this.showViewError(`Unable to display chart: view "${requested}" does not exist.`, requested);
       return;
     }
     if (requested !== null && this.viewErrors.has(requested)) {
       const errors = this.viewErrors.get(requested)!;
-      this.showError(
+      this.showViewError(
         `Unable to display chart: view "${requested}" is invalid. ${errors.join(' ')}`,
         errors,
       );
@@ -179,18 +183,18 @@ export class OrgDeltaChartElement extends HTMLElement {
     }
     const selectedId = requested ?? documentData.snapshots[0]?.id;
     if (!selectedId) {
-      this.showError('Unable to display chart: no valid view.', this.viewErrors);
+      this.showViewError('Unable to display chart: no valid view.', this.viewErrors);
       return;
     }
     const selectedProposal = documentData.proposals.find(({ id }) => id === selectedId);
     const comparison = this.getAttribute('compare-to');
     if (comparison !== null && !allIds.has(comparison)) {
-      this.showError(`Unable to display chart: baseline "${comparison}" does not exist.`, comparison);
+      this.showViewError(`Unable to display chart: baseline "${comparison}" does not exist.`, comparison);
       return;
     }
     if (comparison !== null && this.viewErrors.has(comparison)) {
       const errors = this.viewErrors.get(comparison)!;
-      this.showError(
+      this.showViewError(
         `Unable to display chart: baseline "${comparison}" is invalid. ${errors.join(' ')}`,
         errors,
       );
@@ -235,7 +239,7 @@ export class OrgDeltaChartElement extends HTMLElement {
         detail: { title: documentData.title, viewId: selectedId, baselineId, summary: { ...summary } },
       }));
     } catch (error) {
-      this.showError('Unable to display chart.', error);
+      this.showViewError('Unable to display chart.', error);
     }
   }
 
@@ -272,8 +276,17 @@ export class OrgDeltaChartElement extends HTMLElement {
     return undefined;
   }
 
-  private showError(message: string, detail: unknown): void {
+  private showFatalError(message: string, detail: unknown): void {
     this.clearVisualization();
+    this.reportError(message, detail);
+  }
+
+  private showViewError(message: string, detail: unknown): void {
+    this.clearView();
+    this.reportError(message, detail);
+  }
+
+  private reportError(message: string, detail: unknown): void {
     this.template.status.textContent = message;
     console.error(`[org-delta-chart] ${message}`, detail);
     this.dispatchEvent(new CustomEvent('org-delta-chart-error', { detail: { message } }));
