@@ -2,9 +2,56 @@ import { describe, expect, it } from 'vitest';
 
 import { ResolutionError, resolveView } from '../src/model/resolve';
 import type { OrgDocument, Patch } from '../src/model/types';
-import { cloneValidDocument } from './fixtures';
+import { cloneValidDocument, taxonomyDocument } from './fixtures';
 
 describe('resolveView', () => {
+  it('resolves taxonomy assignments to their comparison tiers', () => {
+    const document = taxonomyDocument();
+
+    const result = resolveView(document, { viewId: 'current', selectedGroups: [] });
+
+    expect(result.taxonomy.comparisonTiers.map(({ id }) => id)).toEqual([
+      'naf-equivalent', 'division-equivalent', 'wing',
+    ]);
+    expect(result.nodes.get('wing-a')?.resolvedTaxonomyAssignments).toEqual([
+      { systemId: 'usaf-echelon', levelId: 'wing', tierId: 'wing' },
+    ]);
+  });
+
+  it('applies taxonomy and structural changes independent of patch order', () => {
+    const documents = [taxonomyDocument(), taxonomyDocument(), taxonomyDocument()];
+    documents[1]!.proposals[0]!.patches!.reverse();
+    const patches = documents[2]!.proposals[0]!.patches!;
+    documents[2]!.proposals[0]!.patches = [patches[3]!, patches[0]!, patches[7]!, patches[5]!, patches[1]!, patches[6]!, patches[2]!, patches[4]!];
+
+    const results = documents.map((document) =>
+      resolveView(document, { viewId: 'remove-air-divisions', selectedGroups: [] }));
+    const normalize = (result: (typeof results)[number]) => ({
+      taxonomy: result.taxonomy,
+      parents: [...result.parents],
+      nodes: [...result.nodes],
+    });
+
+    expect(normalize(results[1]!)).toEqual(normalize(results[0]!));
+    expect(normalize(results[2]!)).toEqual(normalize(results[0]!));
+    expect(results[0]!.taxonomy?.systems
+      .find(({ id }) => id === 'usaf-echelon')?.levels
+      .find(({ id }) => id === 'numbered-air-force')?.tier).toBe('division-equivalent');
+    expect(results[0]!.nodes.has('air-division-a')).toBe(false);
+    expect(results[0]!.parents.get('wing-b')?.parent).toBe('naf-b');
+  });
+
+  it('deep-clones taxonomy definitions and assignment records', () => {
+    const document = taxonomyDocument();
+    const first = resolveView(document, { viewId: 'current', selectedGroups: [] });
+    const second = resolveView(document, { viewId: 'current', selectedGroups: [] });
+
+    expect(first.taxonomy).not.toBe(document.snapshots[0]!.taxonomy);
+    expect(first.taxonomy?.comparisonTiers[0]).not.toBe(document.snapshots[0]!.taxonomy!.comparisonTiers[0]);
+    expect(first.taxonomy?.systems[0]?.levels[0]).not.toBe(document.snapshots[0]!.taxonomy!.systems[0]!.levels[0]);
+    expect(first.nodes.get('wing-a')?.taxonomyAssignments).not.toBe(document.nodes['wing-a']!.taxonomyAssignments);
+    expect(first.taxonomy).not.toBe(second.taxonomy);
+  });
   it('resolves a complete snapshot with inherited definitions without mutating input', () => {
     const document = cloneValidDocument();
     document.nodes.state!.note = 'Default note';

@@ -15,6 +15,7 @@ function chart(
     parents: new Map(),
     relationships: new Map(),
     semanticAnnotations: [],
+    taxonomy: { comparisonTiers: [], systems: [] },
     presentation: {},
     ...options,
   };

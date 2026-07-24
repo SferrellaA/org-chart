@@ -361,7 +361,7 @@ export interface ResolvedChart {
   parents: ReadonlyMap<string, ResolvedParent>;
   relationships: ReadonlyMap<string, Relationship>;
   semanticAnnotations: readonly SemanticAnnotation[];
-  taxonomy?: TaxonomyState;
+  taxonomy: TaxonomyState;
   presentation: PresentationDefaults;
 }
 

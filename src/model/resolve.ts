@@ -12,7 +12,10 @@ import type {
   SemanticAnnotation,
   SnapshotState,
   Source,
+  TaxonomyPatch,
+  TaxonomyState,
 } from './types';
+import { applyTaxonomyTransaction, cloneTaxonomy, isTaxonomyPatch, resolveTaxonomyAssignments, type TaxonomyPatchEntry } from './taxonomy';
 import {
   concretePatchWrites,
   concreteValueFingerprint,
@@ -39,6 +42,7 @@ interface MutableResolution {
   relationshipTombstones: Map<string, Relationship>;
   semanticAnnotations: SemanticAnnotation[];
   presentation: PresentationDefaults;
+  taxonomy: TaxonomyState;
 }
 
 interface SelectedExecutionContext {
@@ -99,6 +103,10 @@ function cloneNode(id: string, node: NodeDefinition | ResolvedNode): ResolvedNod
   if (node.symbol) cloned.symbol = { ...node.symbol };
   if (node.metadata) cloned.metadata = { ...node.metadata };
   if (node.leadership) cloned.leadership = cloneLeadership(node.leadership)!;
+  if (node.taxonomyAssignments) cloned.taxonomyAssignments = { ...node.taxonomyAssignments };
+  if ('resolvedTaxonomyAssignments' in node && node.resolvedTaxonomyAssignments) {
+    cloned.resolvedTaxonomyAssignments = node.resolvedTaxonomyAssignments.map((assignment) => ({ ...assignment }));
+  }
   if (node.sources) cloned.sources = cloneSources(node.sources);
   return cloned;
 }
@@ -149,6 +157,7 @@ function resolveSnapshot(
   }
   validateHierarchy(nodes, parents, path);
   validateLeadershipIds(nodes, path);
+  resolveTaxonomyAssignments(cloneTaxonomy(snapshot.taxonomy), nodes, path);
   return { nodes, parents };
 }
 
@@ -472,6 +481,7 @@ function applyPatchList(
         // applyPatch retains contextual runtime errors for malformed patch values.
       }
     }
+    if (isObject(patch) && isTaxonomyPatch(patch as unknown as Patch)) return;
     applyPatch(document, state, patch as Patch, patchPath);
     for (const effect of effects) context!.effects.delete(effect.target);
   });
@@ -490,6 +500,7 @@ function applySelectedPatchGroup(
   patches.forEach((patch, index) => {
     const patchPath = `${path}/${index}`;
     finalPath = patchPath;
+    if (isTaxonomyPatch(patch)) return;
     let effects: ConcreteWrite[] = [];
     if (isObject(patch)) {
       try {
@@ -551,6 +562,7 @@ function applyProposal(
     const replacement = resolveSnapshot(document, proposal.snapshot, `${proposalPath}/snapshot`);
     state.nodes = replacement.nodes;
     state.parents = replacement.parents;
+    state.taxonomy = cloneTaxonomy(proposal.snapshot.taxonomy);
     context.effects.clear();
   }
   applyPatchList(
@@ -566,6 +578,23 @@ function applyProposal(
     if (!selected.has(group.id)) continue;
     applySelectedPatchGroup(document, state, group.patches, groupPath, context);
   }
+  const taxonomyEntries: TaxonomyPatchEntry[] = [];
+  const collect = (patches: readonly Patch[], path: string): void => {
+    patches.forEach((patch, index) => {
+      if (isTaxonomyPatch(patch)) taxonomyEntries.push({ patch: patch as TaxonomyPatch, path: `${path}/${index}` });
+    });
+  };
+  collect(proposal.patches ?? [], `${proposalPath}/patches`);
+  for (const [groupIndex, group] of (proposal.patchGroups ?? []).entries()) {
+    if (selected.has(group.id)) collect(group.patches, `${proposalPath}/patchGroups/${groupIndex}/patches`);
+  }
+  state.taxonomy = applyTaxonomyTransaction(state.taxonomy, state.nodes, taxonomyEntries, proposalPath);
+  state.parents = new Map(
+    [...state.nodes.keys()].flatMap((nodeId) => {
+      const parent = state.parents.get(nodeId);
+      return parent ? [[nodeId, parent] as const] : [];
+    }),
+  );
 }
 
 export function resolveView(document: OrgDocument, options: ResolveOptions): ResolvedChart {
@@ -613,6 +642,7 @@ export function resolveView(document: OrgDocument, options: ResolveOptions): Res
     relationships: globalRelationships(document),
     relationshipTombstones: new Map(),
     semanticAnnotations: [],
+    taxonomy: cloneTaxonomy(root.taxonomy),
     presentation: {
       ...(document.presentation ?? {}),
       ...(document.presentation?.focusNodes
@@ -622,12 +652,14 @@ export function resolveView(document: OrgDocument, options: ResolveOptions): Res
   };
   const selectedContext: SelectedExecutionContext = { effects: new Map() };
   for (const item of chain) applyProposal(document, state, item, selected, selectedContext);
+  resolveTaxonomyAssignments(state.taxonomy, state.nodes, escapePathSegment(options.viewId));
 
   return {
     nodes: state.nodes,
     parents: state.parents,
     relationships: state.relationships,
     semanticAnnotations: state.semanticAnnotations,
+    taxonomy: state.taxonomy,
     presentation: state.presentation,
   };
 }

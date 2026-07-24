@@ -80,3 +80,74 @@ export const validDocument: OrgDocument = {
 export function cloneValidDocument(): DeepMutable<OrgDocument> {
   return structuredClone(validDocument) as DeepMutable<OrgDocument>;
 }
+
+export function taxonomyDocument(): DeepMutable<OrgDocument> {
+  return structuredClone({
+    title: 'Synthetic Air Division transition',
+    nodes: {
+      'naf-a': { name: 'Example Numbered Air Force A', taxonomyAssignments: { 'usaf-echelon': 'numbered-air-force' } },
+      'naf-b': { name: 'Example Numbered Air Force B', taxonomyAssignments: { 'usaf-echelon': 'numbered-air-force' } },
+      'air-division-a': {
+        name: 'Example Air Division A',
+        taxonomyAssignments: { 'usaf-echelon': 'air-division' },
+        leadership: [{ id: 'division-commander', title: 'Commander' }],
+      },
+      'air-division-b': { name: 'Example Air Division B', taxonomyAssignments: { 'usaf-echelon': 'air-division' } },
+      'wing-a': { name: 'Example Wing A', taxonomyAssignments: { 'usaf-echelon': 'wing' } },
+      'wing-b': { name: 'Example Wing B', taxonomyAssignments: { 'usaf-echelon': 'wing' } },
+      'wing-c': { name: 'Example Wing C', taxonomyAssignments: { 'usaf-echelon': 'wing' } },
+      'army-division': { name: 'Example Army Division', taxonomyAssignments: { 'army-echelon': 'division' } },
+    },
+    snapshots: [{
+      id: 'current',
+      label: 'With Air Divisions',
+      nodes: {
+        'naf-a': {}, 'naf-b': {}, 'air-division-a': {}, 'air-division-b': {},
+        'wing-a': {}, 'wing-b': {}, 'wing-c': {}, 'army-division': {},
+      },
+      hierarchy: [
+        { child: 'air-division-a', parent: 'naf-a', relationship: 'subordinate' },
+        { child: 'air-division-b', parent: 'naf-b', relationship: 'subordinate' },
+        { child: 'wing-a', parent: 'air-division-a', relationship: 'subordinate' },
+        { child: 'wing-b', parent: 'air-division-a', relationship: 'subordinate' },
+        { child: 'wing-c', parent: 'air-division-b', relationship: 'subordinate' },
+      ],
+      taxonomy: {
+        comparisonTiers: [
+          { id: 'naf-equivalent', label: 'NAF equivalent' },
+          { id: 'division-equivalent', label: 'Division equivalent' },
+          { id: 'wing', label: 'Wing' },
+        ],
+        systems: [
+          {
+            id: 'army-echelon', label: 'Army echelon',
+            levels: [{ id: 'division', label: 'Division', tier: 'division-equivalent' }],
+          },
+          {
+            id: 'usaf-echelon', label: 'USAF echelon',
+            levels: [
+              { id: 'numbered-air-force', label: 'Numbered Air Force', tier: 'naf-equivalent' },
+              { id: 'air-division', label: 'Air Division', tier: 'division-equivalent' },
+              { id: 'wing', label: 'Wing', tier: 'wing' },
+            ],
+          },
+        ],
+      },
+    }],
+    proposals: [{
+      id: 'remove-air-divisions',
+      label: 'Remove Air Divisions',
+      base: 'current',
+      patches: [
+        { type: 'remove-taxonomy-level', taxonomy: 'usaf-echelon', level: 'air-division' },
+        { type: 'set-taxonomy-level', taxonomy: 'usaf-echelon', level: 'numbered-air-force', value: { tier: 'division-equivalent' } },
+        { type: 'remove-node', node: 'air-division-a' },
+        { type: 'remove-node', node: 'air-division-b' },
+        { type: 'set-parent', node: 'wing-a', parent: 'naf-a', relationship: 'subordinate' },
+        { type: 'set-parent', node: 'wing-b', parent: 'naf-b', relationship: 'subordinate' },
+        { type: 'set-parent', node: 'wing-c', parent: 'naf-b', relationship: 'subordinate' },
+        { type: 'set-node', node: 'naf-a', value: { leadership: [{ id: 'division-commander', title: 'Deputy Commander' }] } },
+      ],
+    }],
+  } satisfies OrgDocument) as DeepMutable<OrgDocument>;
+}
