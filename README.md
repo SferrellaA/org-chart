@@ -4,11 +4,11 @@
 
 ## Direct Embed
 
-Use the component and point it at a JSON document. The example pages use the same two-line pattern:
+Use the built component bundle and point it at a JSON document:
 
 ```html
 <org-delta-chart src="./state-department.json"></org-delta-chart>
-<script type="module" src="/src/index.ts"></script>
+<script type="module" src="/assets/org-delta-chart.js"></script>
 ```
 
 Give the custom element an explicit height in page CSS:
