@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { diffCharts, type ChartDiff, type ResolvedChart, type ResolvedNode } from '../src';
+import { resolveView } from '../src/model/resolve';
+import { taxonomyDocument } from './fixtures';
 
 function node(id: string, overrides: Partial<ResolvedNode> = {}): ResolvedNode {
   return { id, name: id, ...overrides };
@@ -22,6 +24,39 @@ function chart(
 }
 
 describe('diffCharts', () => {
+  it('diffs taxonomy catalogs and derived node tier movement', () => {
+    const document = taxonomyDocument();
+    const before = resolveView(document, { viewId: 'current', selectedGroups: [] });
+    const after = resolveView(document, { viewId: 'remove-air-divisions', selectedGroups: [] });
+
+    const result = diffCharts(before, after);
+
+    expect(result.taxonomy.levels.get('usaf-echelon\0air-division')?.kind).toBe('removed');
+    expect(result.taxonomy.levels.get('usaf-echelon\0numbered-air-force')?.changes).toContain('tier');
+    expect(result.taxonomy.assignments.get('naf-a\0usaf-echelon')?.changes).toEqual(['tier']);
+    expect(result.nodes.get('naf-a')?.changes).toContain('taxonomy');
+    expect(result.nodes.get('army-division')?.changes).not.toContain('taxonomy');
+    expect(result.nodes.get('air-division-a')?.before?.resolvedTaxonomyAssignments).toEqual([
+      { systemId: 'usaf-echelon', levelId: 'air-division', tierId: 'division-equivalent' },
+    ]);
+  });
+
+  it('keeps taxonomy label changes out of node movement diffs', () => {
+    const document = taxonomyDocument();
+    document.proposals[0]!.patches = [{
+      type: 'set-taxonomy-level',
+      taxonomy: 'usaf-echelon',
+      level: 'wing',
+      value: { label: 'Operational Wing' },
+    }];
+    const before = resolveView(document, { viewId: 'current', selectedGroups: [] });
+    const after = resolveView(document, { viewId: 'remove-air-divisions', selectedGroups: [] });
+
+    const result = diffCharts(before, after);
+
+    expect(result.taxonomy.levels.get('usaf-echelon\0wing')?.changes).toEqual(['label']);
+    expect(result.nodes.get('wing-a')?.changes).not.toContain('taxonomy');
+  });
   it('classifies added, removed, modified, and unchanged nodes in stable order', () => {
     const before = chart(
       [node('same'), node('removed', { note: 'old' }), node('changed', { name: 'Old' })],

@@ -1,4 +1,5 @@
 import type {
+  ComparisonTier,
   LeadershipPosition,
   Relationship,
   ResolvedChart,
@@ -6,6 +7,8 @@ import type {
   ResolvedParent,
   SemanticAnnotation,
   Source,
+  TaxonomyLevel,
+  TaxonomySystem,
 } from './types';
 
 export type DiffKind = 'added' | 'removed' | 'modified' | 'unchanged';
@@ -15,6 +18,7 @@ export type NodeChange =
   | 'note'
   | 'metadata'
   | 'leadership'
+  | 'taxonomy'
   | 'parent'
   | 'relationship'
   | 'edgeMetadata';
@@ -74,8 +78,57 @@ export interface ChartDiff {
   nodes: ReadonlyMap<string, NodeDiff>;
   relationships: ReadonlyMap<string, RelationshipDiff>;
   leadership: readonly LeadershipDiff[];
+  taxonomy: TaxonomyDiff;
   annotations: readonly SemanticAnnotation[];
   summary: DiffSummary;
+}
+
+export type TaxonomyDefinitionChange = 'label' | 'note' | 'sources' | 'tier';
+
+export interface ComparisonTierDiff {
+  id: string;
+  kind: DiffKind;
+  before?: ComparisonTier;
+  after?: ComparisonTier;
+  changes: readonly TaxonomyDefinitionChange[];
+}
+
+export interface TaxonomySystemDiff {
+  id: string;
+  kind: DiffKind;
+  before?: Omit<TaxonomySystem, 'levels'>;
+  after?: Omit<TaxonomySystem, 'levels'>;
+  changes: readonly TaxonomyDefinitionChange[];
+}
+
+export interface TaxonomyLevelDiff {
+  systemId: string;
+  levelId: string;
+  kind: DiffKind;
+  before?: TaxonomyLevel;
+  after?: TaxonomyLevel;
+  changes: readonly TaxonomyDefinitionChange[];
+}
+
+export type TaxonomyAssignmentChange = 'level' | 'tier';
+
+export interface TaxonomyAssignmentDiff {
+  nodeId: string;
+  systemId: string;
+  kind: DiffKind;
+  beforeLevelId?: string;
+  afterLevelId?: string;
+  beforeTierId?: string;
+  afterTierId?: string;
+  changes: readonly TaxonomyAssignmentChange[];
+}
+
+export interface TaxonomyDiff {
+  comparisonTiers: ReadonlyMap<string, ComparisonTierDiff>;
+  systems: ReadonlyMap<string, TaxonomySystemDiff>;
+  levels: ReadonlyMap<string, TaxonomyLevelDiff>;
+  assignments: ReadonlyMap<string, TaxonomyAssignmentDiff>;
+  tierOrder?: { before: readonly string[]; after: readonly string[] };
 }
 
 function cloneSources(sources: readonly Source[]): Source[];
@@ -126,6 +179,10 @@ function cloneNode(node: ResolvedNode): ResolvedNode {
   if (node.aliases !== undefined) clone.aliases = [...node.aliases];
   if (node.symbol !== undefined) clone.symbol = { ...node.symbol };
   if (node.leadership !== undefined) clone.leadership = cloneLeadership(node.leadership)!;
+  if (node.taxonomyAssignments !== undefined) clone.taxonomyAssignments = { ...node.taxonomyAssignments };
+  if (node.resolvedTaxonomyAssignments !== undefined) {
+    clone.resolvedTaxonomyAssignments = node.resolvedTaxonomyAssignments.map((assignment) => ({ ...assignment }));
+  }
   return clone;
 }
 
@@ -186,6 +243,7 @@ function nodeChanges(
   if (before.note !== after.note) changes.push('note');
   if (!valuesEqual(before.metadata, after.metadata)) changes.push('metadata');
   if (!valuesEqual(before.leadership, after.leadership)) changes.push('leadership');
+  if (!valuesEqual(before.resolvedTaxonomyAssignments, after.resolvedTaxonomyAssignments)) changes.push('taxonomy');
   if (beforeParent?.parent !== afterParent?.parent) changes.push('parent');
   if (beforeParent?.relationship !== afterParent?.relationship) changes.push('relationship');
   if (
@@ -370,6 +428,118 @@ function diffLeadership(before: ResolvedChart, after: ResolvedChart): Leadership
   return result;
 }
 
+function definitionChanges(before: object, after: object, includeTier = false): TaxonomyDefinitionChange[] {
+  const changes: TaxonomyDefinitionChange[] = [];
+  const first = before as { label?: string; note?: string; sources?: readonly Source[]; tier?: string };
+  const second = after as { label?: string; note?: string; sources?: readonly Source[]; tier?: string };
+  if (first.label !== second.label) changes.push('label');
+  if (first.note !== second.note) changes.push('note');
+  if (!valuesEqual(first.sources, second.sources)) changes.push('sources');
+  if (includeTier && first.tier !== second.tier) changes.push('tier');
+  return changes;
+}
+
+function cloneDefinition<T extends { sources?: readonly Source[] }>(value: T): T {
+  return {
+    ...value,
+    ...(value.sources ? { sources: cloneSources(value.sources) } : {}),
+  };
+}
+
+function diffTaxonomy(before: ResolvedChart, after: ResolvedChart): TaxonomyDiff {
+  const comparisonTiers = new Map<string, ComparisonTierDiff>();
+  const beforeTiers = new Map(before.taxonomy.comparisonTiers.map((tier) => [tier.id, tier]));
+  const afterTiers = new Map(after.taxonomy.comparisonTiers.map((tier) => [tier.id, tier]));
+  for (const [id, item] of beforeTiers) {
+    const next = afterTiers.get(id);
+    if (!next) comparisonTiers.set(id, { id, kind: 'removed', before: cloneDefinition(item), changes: [] });
+    else {
+      const changes = definitionChanges(item, next);
+      if (changes.length > 0) comparisonTiers.set(id, { id, kind: 'modified', before: cloneDefinition(item), after: cloneDefinition(next), changes });
+    }
+  }
+  for (const [id, item] of afterTiers) {
+    if (!beforeTiers.has(id)) comparisonTiers.set(id, { id, kind: 'added', after: cloneDefinition(item), changes: [] });
+  }
+
+  const systems = new Map<string, TaxonomySystemDiff>();
+  const levels = new Map<string, TaxonomyLevelDiff>();
+  const beforeSystems = new Map(before.taxonomy.systems.map((system) => [system.id, system]));
+  const afterSystems = new Map(after.taxonomy.systems.map((system) => [system.id, system]));
+  const metadata = (system: TaxonomySystem): Omit<TaxonomySystem, 'levels'> => {
+    const { levels: _levels, ...rest } = system;
+    return cloneDefinition(rest);
+  };
+  for (const [id, item] of beforeSystems) {
+    const next = afterSystems.get(id);
+    if (!next) systems.set(id, { id, kind: 'removed', before: metadata(item), changes: [] });
+    else {
+      const changes = definitionChanges(item, next);
+      if (changes.length > 0) systems.set(id, { id, kind: 'modified', before: metadata(item), after: metadata(next), changes });
+    }
+  }
+  for (const [id, item] of afterSystems) {
+    if (!beforeSystems.has(id)) systems.set(id, { id, kind: 'added', after: metadata(item), changes: [] });
+  }
+  const indexLevels = (chart: ResolvedChart): Map<string, { systemId: string; level: TaxonomyLevel }> => {
+    const result = new Map<string, { systemId: string; level: TaxonomyLevel }>();
+    for (const system of chart.taxonomy.systems) {
+      for (const level of system.levels) result.set(`${system.id}\0${level.id}`, { systemId: system.id, level });
+    }
+    return result;
+  };
+  const beforeLevels = indexLevels(before);
+  const afterLevels = indexLevels(after);
+  for (const [key, item] of beforeLevels) {
+    const next = afterLevels.get(key);
+    if (!next) levels.set(key, { systemId: item.systemId, levelId: item.level.id, kind: 'removed', before: cloneDefinition(item.level), changes: [] });
+    else {
+      const changes = definitionChanges(item.level, next.level, true);
+      if (changes.length > 0) levels.set(key, { systemId: item.systemId, levelId: item.level.id, kind: 'modified', before: cloneDefinition(item.level), after: cloneDefinition(next.level), changes });
+    }
+  }
+  for (const [key, item] of afterLevels) {
+    if (!beforeLevels.has(key)) levels.set(key, { systemId: item.systemId, levelId: item.level.id, kind: 'added', after: cloneDefinition(item.level), changes: [] });
+  }
+
+  const assignments = new Map<string, TaxonomyAssignmentDiff>();
+  const indexAssignments = (chart: ResolvedChart): Map<string, { nodeId: string; systemId: string; levelId: string; tierId: string }> => {
+    const result = new Map<string, { nodeId: string; systemId: string; levelId: string; tierId: string }>();
+    for (const [nodeId, node] of chart.nodes) {
+      for (const assignment of node.resolvedTaxonomyAssignments ?? []) result.set(`${nodeId}\0${assignment.systemId}`, { nodeId, ...assignment });
+    }
+    return result;
+  };
+  const beforeAssignments = indexAssignments(before);
+  const afterAssignments = indexAssignments(after);
+  for (const [key, item] of beforeAssignments) {
+    const next = afterAssignments.get(key);
+    if (!next) assignments.set(key, { nodeId: item.nodeId, systemId: item.systemId, kind: 'removed', beforeLevelId: item.levelId, beforeTierId: item.tierId, changes: [] });
+    else {
+      const changes: TaxonomyAssignmentChange[] = [];
+      if (item.levelId !== next.levelId) changes.push('level');
+      if (item.tierId !== next.tierId) changes.push('tier');
+      if (changes.length > 0) assignments.set(key, {
+        nodeId: item.nodeId, systemId: item.systemId, kind: 'modified',
+        beforeLevelId: item.levelId, afterLevelId: next.levelId,
+        beforeTierId: item.tierId, afterTierId: next.tierId, changes,
+      });
+    }
+  }
+  for (const [key, item] of afterAssignments) {
+    if (!beforeAssignments.has(key)) assignments.set(key, { nodeId: item.nodeId, systemId: item.systemId, kind: 'added', afterLevelId: item.levelId, afterTierId: item.tierId, changes: [] });
+  }
+  const beforeOrder = before.taxonomy.comparisonTiers.map((tier) => tier.id);
+  const afterOrder = after.taxonomy.comparisonTiers.map((tier) => tier.id);
+  return {
+    comparisonTiers,
+    systems,
+    levels,
+    assignments,
+    ...(!valuesEqual(beforeOrder, afterOrder) ? { tierOrder: { before: beforeOrder, after: afterOrder } } : {}),
+  };
+}
+
 export function diffCharts(before: ResolvedChart, after: ResolvedChart): ChartDiff {
   const nodes = diffNodes(before, after);
   const leadership = diffLeadership(before, after);
@@ -387,6 +557,7 @@ export function diffCharts(before: ResolvedChart, after: ResolvedChart): ChartDi
     nodes,
     relationships: diffRelationships(before, after),
     leadership,
+    taxonomy: diffTaxonomy(before, after),
     annotations: after.semanticAnnotations.map(cloneAnnotation),
     summary,
   };

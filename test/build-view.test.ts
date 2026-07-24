@@ -49,7 +49,16 @@ function diff(
   );
   const summary = { added: 0, removed: 0, modified: 0, unchanged: 0 };
   for (const value of nodes.values()) summary[value.kind] += 1;
-  return { nodes, relationships, leadership: [], annotations: [], summary };
+  return {
+    nodes,
+    relationships,
+    leadership: [],
+    taxonomy: {
+      comparisonTiers: new Map(), systems: new Map(), levels: new Map(), assignments: new Map(),
+    },
+    annotations: [],
+    summary,
+  };
 }
 
 const options = {
