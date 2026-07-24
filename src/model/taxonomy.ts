@@ -2,7 +2,6 @@ import type {
   ComparisonTier,
   Patch,
   ResolvedNode,
-  Source,
   TaxonomyLevel,
   TaxonomyPatch,
   TaxonomyState,
@@ -22,10 +21,6 @@ export class TaxonomyError extends Error {
 }
 
 const EMPTY_TAXONOMY: TaxonomyState = { comparisonTiers: [], systems: [] };
-
-function cloneSources(sources: readonly Source[] | undefined): Source[] | undefined {
-  return sources?.map((source) => ({ ...source }));
-}
 
 function cloneTier(tier: ComparisonTier): ComparisonTier {
   return { ...tier, ...(tier.sources ? { sources: tier.sources.map((source) => ({ ...source })) } : {}) };
@@ -56,7 +51,18 @@ export function isTaxonomyPatch(patch: Patch): patch is TaxonomyPatch {
 }
 
 function equal(first: unknown, second: unknown): boolean {
-  return JSON.stringify(first) === JSON.stringify(second);
+  if (Object.is(first, second)) return true;
+  if (typeof first !== typeof second || first === null || second === null) return false;
+  if (Array.isArray(first) || Array.isArray(second)) {
+    return Array.isArray(first) && Array.isArray(second) &&
+      first.length === second.length && first.every((value, index) => equal(value, second[index]));
+  }
+  if (typeof first !== 'object') return false;
+  const firstRecord = first as Record<string, unknown>;
+  const secondRecord = second as Record<string, unknown>;
+  const firstKeys = Object.keys(firstRecord);
+  return firstKeys.length === Object.keys(secondRecord).length &&
+    firstKeys.every((key) => Object.hasOwn(secondRecord, key) && equal(firstRecord[key], secondRecord[key]));
 }
 
 function recordWrite(writes: Map<string, { value: unknown; path: string }>, target: string, value: unknown, path: string): void {
@@ -179,13 +185,13 @@ export function applyTaxonomyTransaction(
   for (const [target, write] of writes) {
     if (!target.endsWith('/existence') || write.value !== false) continue;
     const entity = target.slice(0, -'/existence'.length);
-    const relatedPrefixes = [entity];
+    const relatedPrefixes = [`${entity}/`];
     if (entity.startsWith('system/')) relatedPrefixes.push(`level/${entity.slice('system/'.length)}/`);
     const contradiction = [...writes.keys()].find((candidate) =>
-      candidate !== target && relatedPrefixes.some((prefix) => candidate.startsWith(`${prefix}/`) || candidate.startsWith(prefix)),
+      candidate !== target && relatedPrefixes.some((prefix) => candidate.startsWith(prefix)),
     );
     if (contradiction) {
-      throw new TaxonomyError(write.path, `conflicting taxonomy operations on ${entity.replaceAll('/', '/')}`);
+      throw new TaxonomyError(write.path, `conflicting taxonomy operations on ${entity}`);
     }
   }
 
@@ -193,17 +199,26 @@ export function applyTaxonomyTransaction(
   const tiers = new Map(taxonomy.comparisonTiers.map((tier) => [tier.id, tier]));
   const systems = new Map(taxonomy.systems.map((system) => [system.id, system]));
   const orderWrite = writes.get('tier/order');
+  const baseTierIds = new Set(tiers.keys());
+  const baseSystemIds = new Set(systems.keys());
+  const baseLevelIds = new Set(
+    taxonomy.systems.flatMap((system) => system.levels.map((level) => `${system.id}\0${level.id}`)),
+  );
 
+  for (const [target, write] of writes) {
+    const parts = target.split('/');
+    if (parts[0] !== 'tier' || parts[2] !== 'definition') continue;
+    const id = parts[1]!;
+    if (baseTierIds.has(id)) throw new TaxonomyError(write.path, `comparison tier "${id}" already exists`);
+    tiers.set(id, cloneTier(write.value as ComparisonTier));
+  }
   for (const [target, write] of writes) {
     const parts = target.split('/');
     if (parts[0] === 'tier' && parts[1] !== 'order') {
       const id = parts[1]!;
       if (parts[2] === 'existence') {
         if (write.value === false) tiers.delete(id);
-        else if (tiers.has(id)) throw new TaxonomyError(write.path, `comparison tier "${id}" already exists`);
-      } else if (parts[2] === 'definition') {
-        tiers.set(id, cloneTier(write.value as ComparisonTier));
-      } else {
+      } else if (parts[2] !== 'definition') {
         const tier = tiers.get(id);
         if (!tier) throw new TaxonomyError(write.path, `comparison tier "${id}" does not exist`);
         (tier as unknown as Record<string, unknown>)[parts[2]!] = write.value;
@@ -212,18 +227,33 @@ export function applyTaxonomyTransaction(
   }
   for (const [target, write] of writes) {
     const parts = target.split('/');
+    if (parts[0] !== 'system' || parts[2] !== 'definition') continue;
+    const id = parts[1]!;
+    if (baseSystemIds.has(id)) throw new TaxonomyError(write.path, `taxonomy system "${id}" already exists`);
+    systems.set(id, { ...(write.value as Omit<TaxonomySystem, 'levels'>), levels: [] });
+  }
+  for (const [target, write] of writes) {
+    const parts = target.split('/');
     if (parts[0] !== 'system') continue;
     const id = parts[1]!;
     if (parts[2] === 'existence') {
       if (write.value === false) systems.delete(id);
-      else if (systems.has(id)) throw new TaxonomyError(write.path, `taxonomy system "${id}" already exists`);
-    } else if (parts[2] === 'definition') {
-      systems.set(id, { ...(write.value as Omit<TaxonomySystem, 'levels'>), levels: [] });
-    } else {
+    } else if (parts[2] !== 'definition') {
       const system = systems.get(id);
       if (!system) throw new TaxonomyError(write.path, `taxonomy system "${id}" does not exist`);
       (system as unknown as Record<string, unknown>)[parts[2]!] = write.value;
     }
+  }
+  for (const [target, write] of writes) {
+    const parts = target.split('/');
+    if (parts[0] !== 'level' || parts[3] !== 'definition') continue;
+    const system = systems.get(parts[1]!);
+    if (!system) throw new TaxonomyError(write.path, `taxonomy system "${parts[1]}" does not exist`);
+    const id = parts[2]!;
+    if (baseLevelIds.has(`${parts[1]}\0${id}`)) {
+      throw new TaxonomyError(write.path, `taxonomy level "${parts[1]}/${id}" already exists`);
+    }
+    system.levels = [...system.levels, cloneLevel(write.value as TaxonomyLevel)];
   }
   for (const [target, write] of writes) {
     const parts = target.split('/');
@@ -234,10 +264,7 @@ export function applyTaxonomyTransaction(
     const id = parts[2]!;
     if (parts[3] === 'existence') {
       if (write.value === false) levels.delete(id);
-      else if (levels.has(id)) throw new TaxonomyError(write.path, `taxonomy level "${parts[1]}/${id}" already exists`);
-    } else if (parts[3] === 'definition') {
-      levels.set(id, cloneLevel(write.value as TaxonomyLevel));
-    } else {
+    } else if (parts[3] !== 'definition') {
       const level = levels.get(id);
       if (!level) throw new TaxonomyError(write.path, `taxonomy level "${parts[1]}/${id}" does not exist`);
       (level as unknown as Record<string, unknown>)[parts[3]!] = write.value;
@@ -261,9 +288,24 @@ export function applyTaxonomyTransaction(
   if (order.length !== tiers.size || new Set(order).size !== order.length || order.some((id) => !tiers.has(id))) {
     throw new TaxonomyError(orderWrite?.path ?? path, 'comparison tier order must contain every final tier exactly once');
   }
+  const baseSystemOrder = taxonomy.systems.map((system) => system.id);
+  const systemOrder = [
+    ...baseSystemOrder.filter((id) => systems.has(id)),
+    ...[...systems.keys()].filter((id) => !baseSystemIds.has(id)).sort(),
+  ];
+  for (const systemId of systemOrder) {
+    const system = systems.get(systemId)!;
+    const baseLevelOrder = taxonomy.systems.find(({ id }) => id === systemId)?.levels.map((level) => level.id) ?? [];
+    const levelById = new Map(system.levels.map((level) => [level.id, level]));
+    const levelOrder = [
+      ...baseLevelOrder.filter((id) => levelById.has(id)),
+      ...[...levelById.keys()].filter((id) => !baseLevelOrder.includes(id)).sort(),
+    ];
+    system.levels = levelOrder.map((id) => levelById.get(id)!);
+  }
   const result: TaxonomyState = {
     comparisonTiers: order.map((id) => tiers.get(id)!),
-    systems: [...systems.values()],
+    systems: systemOrder.map((id) => systems.get(id)!),
   };
   resolveTaxonomyAssignments(result, nodes, path);
   return result;

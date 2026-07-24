@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ResolutionError, resolveView } from '../src/model/resolve';
 import type { OrgDocument, Patch } from '../src/model/types';
-import { cloneValidDocument, taxonomyDocument } from './fixtures';
+import { cloneValidDocument, taxonomyDocument, type DeepMutable } from './fixtures';
 
 describe('resolveView', () => {
   it('resolves taxonomy assignments to their comparison tiers', () => {
@@ -78,6 +78,17 @@ describe('resolveView', () => {
       .toThrow(/conflicting taxonomy assignment writes/i);
   });
 
+  it('rejects conflicting whole-record taxonomy assignment writes', () => {
+    const document = taxonomyDocument();
+    document.proposals[0]!.patches = [
+      { type: 'set-node', node: 'wing-a', value: { taxonomyAssignments: { 'usaf-echelon': 'wing' } } },
+      { type: 'set-node', node: 'wing-a', value: { taxonomyAssignments: { 'usaf-echelon': 'air-division' } } },
+    ];
+
+    expect(() => resolveView(document, { viewId: 'remove-air-divisions', selectedGroups: [] }))
+      .toThrow(/conflicting taxonomy assignment record writes/i);
+  });
+
   it('retains semantic annotations from taxonomy patches', () => {
     const document = taxonomyDocument();
     document.proposals[0]!.patches = [{
@@ -97,6 +108,84 @@ describe('resolveView', () => {
       note: undefined,
       sources: undefined,
     });
+  });
+
+  it('does not confuse taxonomy IDs that share a prefix', () => {
+    const document = taxonomyDocument();
+    document.snapshots[0]!.taxonomy!.systems[1]!.levels.push({
+      id: 'air-division-reserve',
+      label: 'Reserve Air Division',
+      tier: 'division-equivalent',
+    });
+    document.proposals[0]!.patches!.push({
+      type: 'set-taxonomy-level',
+      taxonomy: 'usaf-echelon',
+      level: 'air-division-reserve',
+      value: { label: 'Air Reserve Division' },
+    });
+
+    const result = resolveView(document, { viewId: 'remove-air-divisions', selectedGroups: [] });
+
+    expect(result.taxonomy.systems[1]?.levels.find(({ id }) => id === 'air-division-reserve')?.label)
+      .toBe('Air Reserve Division');
+  });
+
+  it('composes adds and sets independent of taxonomy patch order', () => {
+    const document = cloneValidDocument();
+    delete document.proposals[0]!.patchGroups;
+    document.proposals[0]!.patches = [
+      { type: 'set-taxonomy-assignment', node: 'usaid', taxonomy: 'usaf', level: 'wing' },
+      { type: 'add-taxonomy-level', taxonomy: 'usaf', level: { id: 'wing', label: 'Wing', tier: 'wing' } },
+      { type: 'set-taxonomy-system', taxonomy: 'usaf', value: { label: 'Air Force echelon' } },
+      { type: 'add-taxonomy-system', taxonomy: { id: 'usaf', label: 'USAF echelon' } },
+      { type: 'set-comparison-tier', tier: 'wing', value: { label: 'Wing equivalent' } },
+      { type: 'add-comparison-tier', tier: { id: 'wing', label: 'Wing' } },
+      { type: 'set-comparison-tier-order', tiers: ['wing'] },
+    ];
+
+    const result = resolveView(document, { viewId: 'proposal-a', selectedGroups: [] });
+
+    expect(result.taxonomy.comparisonTiers[0]?.label).toBe('Wing equivalent');
+    expect(result.taxonomy.systems[0]?.label).toBe('Air Force echelon');
+    expect(result.nodes.get('usaid')?.resolvedTaxonomyAssignments?.[0]?.tierId).toBe('wing');
+  });
+
+  it('treats deeply equal taxonomy writes as identical regardless of object key order', () => {
+    const document = cloneValidDocument();
+    delete document.proposals[0]!.patchGroups;
+    document.proposals[0]!.patches = [
+      { type: 'add-comparison-tier', tier: { id: 'wing', label: 'Wing', note: 'Equivalent tier' } },
+      { type: 'add-comparison-tier', tier: { note: 'Equivalent tier', label: 'Wing', id: 'wing' } },
+      { type: 'set-comparison-tier-order', tiers: ['wing'] },
+    ];
+
+    const result = resolveView(document, { viewId: 'proposal-a', selectedGroups: [] });
+
+    expect(result.taxonomy.comparisonTiers).toEqual([
+      { id: 'wing', label: 'Wing', note: 'Equivalent tier' },
+    ]);
+  });
+
+  it('orders newly added systems and levels deterministically', () => {
+    const documents = [cloneValidDocument(), cloneValidDocument()];
+    const patches: DeepMutable<Patch>[] = [
+      { type: 'add-comparison-tier', tier: { id: 'unit', label: 'Unit' } },
+      { type: 'set-comparison-tier-order', tiers: ['unit'] },
+      { type: 'add-taxonomy-system', taxonomy: { id: 'z-system', label: 'Z system' } },
+      { type: 'add-taxonomy-system', taxonomy: { id: 'a-system', label: 'A system' } },
+      { type: 'add-taxonomy-level', taxonomy: 'z-system', level: { id: 'z-level', label: 'Z level', tier: 'unit' } },
+      { type: 'add-taxonomy-level', taxonomy: 'z-system', level: { id: 'a-level', label: 'A level', tier: 'unit' } },
+    ];
+    for (const [index, document] of documents.entries()) {
+      delete document.proposals[0]!.patchGroups;
+      document.proposals[0]!.patches = structuredClone(index === 0 ? patches : [...patches].reverse());
+    }
+
+    const results = documents.map((document) => resolveView(document, { viewId: 'proposal-a', selectedGroups: [] }));
+
+    expect(results[1]!.taxonomy).toEqual(results[0]!.taxonomy);
+    expect(results[0]!.taxonomy.systems.map(({ id }) => id)).toEqual(['a-system', 'z-system']);
+    expect(results[0]!.taxonomy.systems[1]!.levels.map(({ id }) => id)).toEqual(['a-level', 'z-level']);
   });
   it('resolves a complete snapshot with inherited definitions without mutating input', () => {
     const document = cloneValidDocument();

@@ -585,6 +585,16 @@ function applyProposal(
       const patchPath = `${path}/${index}`;
       if (isTaxonomyPatch(patch)) taxonomyEntries.push({ patch: patch as TaxonomyPatch, path: patchPath });
       if ((patch.type === 'set-node' || patch.type === 'add-node') && patch.value?.taxonomyAssignments) {
+        const previous = nodeAssignmentWrites.get(patch.node);
+        if (
+          previous &&
+          concreteValueFingerprint(previous.assignments) !== concreteValueFingerprint(patch.value.taxonomyAssignments)
+        ) {
+          throw new TaxonomyError(
+            patchPath,
+            `conflicting taxonomy assignment record writes for ${patch.node} (first written at ${previous.path})`,
+          );
+        }
         nodeAssignmentWrites.set(patch.node, { assignments: patch.value.taxonomyAssignments, path: patchPath });
       }
     });
