@@ -19,6 +19,32 @@ function group(id: string, options: Partial<PatchGroup> = {}): PatchGroup {
 }
 
 describe('patch selection', () => {
+  it('detects divergent writes to the same taxonomy level field', () => {
+    const input = proposal([
+      group('first', { patches: [{ type: 'set-taxonomy-level', taxonomy: 'usaf', level: 'naf', value: { tier: 'command' } }] }),
+      group('second', { patches: [{ type: 'set-taxonomy-level', taxonomy: 'usaf', level: 'naf', value: { tier: 'division' } }] }),
+    ]);
+
+    expect(validateSelection(input, ['first', 'second'])).toMatch(/both set.*tier/i);
+  });
+
+  it('allows disjoint writes to the same taxonomy level', () => {
+    const input = proposal([
+      group('label', { patches: [{ type: 'set-taxonomy-level', taxonomy: 'usaf', level: 'naf', value: { label: 'Numbered Air Force' } }] }),
+      group('tier', { patches: [{ type: 'set-taxonomy-level', taxonomy: 'usaf', level: 'naf', value: { tier: 'division' } }] }),
+    ]);
+
+    expect(validateSelection(input, ['label', 'tier'])).toBeUndefined();
+  });
+
+  it('detects removing and changing the same taxonomy level', () => {
+    const input = proposal([
+      group('remove', { patches: [{ type: 'remove-taxonomy-level', taxonomy: 'usaf', level: 'naf' }] }),
+      group('change', { patches: [{ type: 'set-taxonomy-level', taxonomy: 'usaf', level: 'naf', value: { tier: 'division' } }] }),
+    ]);
+
+    expect(validateSelection(input, ['remove', 'change'])).toMatch(/both set.*existence/i);
+  });
   it('exports selection helpers from the package entry point', () => {
     expect(publicApi.initialPatchSelection).toBe(initialPatchSelection);
     expect(publicApi.togglePatchGroup).toBe(togglePatchGroup);

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { validateDocument } from '../src/model/validate';
 import type { OrgDocument, Proposal } from '../src/model/types';
-import { cloneValidDocument, validDocument, type DeepMutable } from './fixtures';
+import { cloneValidDocument, taxonomyDocument, validDocument, type DeepMutable } from './fixtures';
 
 function renameUsaid(document: DeepMutable<OrgDocument>, id: string): void {
   document.nodes[id] = document.nodes.usaid!;
@@ -23,6 +23,52 @@ function renameUsaid(document: DeepMutable<OrgDocument>, id: string): void {
 }
 
 describe('validateDocument', () => {
+  it('rejects invalid taxonomy references in snapshots', () => {
+    const missingTier = taxonomyDocument();
+    missingTier.snapshots[0]!.taxonomy!.systems[1]!.levels[0]!.tier = 'missing';
+    const missingLevel = taxonomyDocument();
+    missingLevel.nodes['wing-a']!.taxonomyAssignments!['usaf-echelon'] = 'missing';
+
+    expect(validateDocument(missingTier).ok).toBe(false);
+    expect(validateDocument(missingLevel).ok).toBe(false);
+  });
+
+  it('reports dangling proposal taxonomy references as view errors', () => {
+    const document = taxonomyDocument();
+    document.proposals[0]!.patches = document.proposals[0]!.patches!.filter(
+      (patch) => patch.type !== 'remove-node' && patch.type !== 'set-node',
+    );
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.viewErrors.get('remove-air-divisions')?.join(' ')).toMatch(/missing level/i);
+  });
+
+  it('accepts the complete Air Division taxonomy transaction in reverse order', () => {
+    const document = taxonomyDocument();
+    document.proposals[0]!.patches!.reverse();
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.viewErrors.size).toBe(0);
+  });
+
+  it('validates optional taxonomy patch groups as selectable transactions', () => {
+    const document = taxonomyDocument();
+    document.proposals[0]!.patches = [];
+    document.proposals[0]!.patchGroups = [{
+      id: 'remove-level',
+      label: 'Remove Air Division level',
+      patches: [{ type: 'remove-taxonomy-level', taxonomy: 'usaf-echelon', level: 'air-division' }],
+    }];
+
+    const result = validateDocument(document);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.viewErrors.get('remove-air-divisions')?.join(' ')).toMatch(/missing level/i);
+  });
   it('accepts the reusable valid document without view errors', () => {
     expect(validateDocument(validDocument)).toEqual({
       ok: true,

@@ -52,6 +52,20 @@ describe('resolveView', () => {
     expect(first.nodes.get('wing-a')?.taxonomyAssignments).not.toBe(document.nodes['wing-a']!.taxonomyAssignments);
     expect(first.taxonomy).not.toBe(second.taxonomy);
   });
+
+  it('rejects contradictory taxonomy operations regardless of order', () => {
+    for (const reverse of [false, true]) {
+      const document = taxonomyDocument();
+      document.proposals[0]!.patches = [
+        { type: 'set-taxonomy-level', taxonomy: 'usaf-echelon', level: 'wing', value: { label: 'Wing equivalent' } },
+        { type: 'remove-taxonomy-level', taxonomy: 'usaf-echelon', level: 'wing' },
+      ];
+      if (reverse) document.proposals[0]!.patches.reverse();
+
+      expect(() => resolveView(document, { viewId: 'remove-air-divisions', selectedGroups: [] }))
+        .toThrow(/conflicting taxonomy.*usaf-echelon.*wing/i);
+    }
+  });
   it('resolves a complete snapshot with inherited definitions without mutating input', () => {
     const document = cloneValidDocument();
     document.nodes.state!.note = 'Default note';

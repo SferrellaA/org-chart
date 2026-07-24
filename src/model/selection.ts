@@ -149,6 +149,52 @@ export function concretePatchWrites(patch: Patch): readonly ConcreteWrite[] {
       return Object.entries(patch.value).map(([key, value]) =>
         concreteWrite(`${patch.relationship}.${key}`, value),
       );
+    case 'add-comparison-tier':
+      return [
+        concreteWrite(`taxonomy.tiers.${patch.tier.id}.existence`, true),
+        ...Object.entries(patch.tier).filter(([key]) => key !== 'id').map(([key, value]) =>
+          concreteWrite(`taxonomy.tiers.${patch.tier.id}.${key}`, value)),
+      ];
+    case 'set-comparison-tier':
+      return [
+        concreteWrite(`taxonomy.tiers.${patch.tier}.existence`, true),
+        ...Object.entries(patch.value).map(([key, value]) => concreteWrite(`taxonomy.tiers.${patch.tier}.${key}`, value)),
+      ];
+    case 'remove-comparison-tier':
+      return [concreteWrite(`taxonomy.tiers.${patch.tier}.existence`, false)];
+    case 'set-comparison-tier-order':
+      return [concreteWrite('taxonomy.tierOrder', patch.tiers)];
+    case 'add-taxonomy-system':
+      return [
+        concreteWrite(`taxonomy.systems.${patch.taxonomy.id}.existence`, true),
+        ...Object.entries(patch.taxonomy).filter(([key]) => key !== 'id').map(([key, value]) =>
+          concreteWrite(`taxonomy.systems.${patch.taxonomy.id}.${key}`, value)),
+      ];
+    case 'set-taxonomy-system':
+      return [
+        concreteWrite(`taxonomy.systems.${patch.taxonomy}.existence`, true),
+        ...Object.entries(patch.value).map(([key, value]) => concreteWrite(`taxonomy.systems.${patch.taxonomy}.${key}`, value)),
+      ];
+    case 'remove-taxonomy-system':
+      return [concreteWrite(`taxonomy.systems.${patch.taxonomy}.existence`, false)];
+    case 'add-taxonomy-level':
+      return [
+        concreteWrite(`taxonomy.systems.${patch.taxonomy}.levels.${patch.level.id}.existence`, true),
+        ...Object.entries(patch.level).filter(([key]) => key !== 'id').map(([key, value]) =>
+          concreteWrite(`taxonomy.systems.${patch.taxonomy}.levels.${patch.level.id}.${key}`, value)),
+      ];
+    case 'set-taxonomy-level':
+      return [
+        concreteWrite(`taxonomy.systems.${patch.taxonomy}.levels.${patch.level}.existence`, true),
+        ...Object.entries(patch.value).map(([key, value]) =>
+          concreteWrite(`taxonomy.systems.${patch.taxonomy}.levels.${patch.level}.${key}`, value)),
+      ];
+    case 'remove-taxonomy-level':
+      return [concreteWrite(`taxonomy.systems.${patch.taxonomy}.levels.${patch.level}.existence`, false)];
+    case 'set-taxonomy-assignment':
+      return [concreteWrite(`nodes.${patch.node}.taxonomyAssignments.${patch.taxonomy}`, patch.level)];
+    case 'remove-taxonomy-assignment':
+      return [concreteWrite(`nodes.${patch.node}.taxonomyAssignments.${patch.taxonomy}`, null)];
     default:
       return [];
   }

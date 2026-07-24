@@ -176,6 +176,18 @@ export function applyTaxonomyTransaction(
         break;
     }
   }
+  for (const [target, write] of writes) {
+    if (!target.endsWith('/existence') || write.value !== false) continue;
+    const entity = target.slice(0, -'/existence'.length);
+    const relatedPrefixes = [entity];
+    if (entity.startsWith('system/')) relatedPrefixes.push(`level/${entity.slice('system/'.length)}/`);
+    const contradiction = [...writes.keys()].find((candidate) =>
+      candidate !== target && relatedPrefixes.some((prefix) => candidate.startsWith(`${prefix}/`) || candidate.startsWith(prefix)),
+    );
+    if (contradiction) {
+      throw new TaxonomyError(write.path, `conflicting taxonomy operations on ${entity.replaceAll('/', '/')}`);
+    }
+  }
 
   const taxonomy = cloneTaxonomy(base);
   const tiers = new Map(taxonomy.comparisonTiers.map((tier) => [tier.id, tier]));

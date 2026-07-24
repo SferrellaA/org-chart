@@ -3,6 +3,7 @@ import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.
 import schema from '../../public/org-delta-chart.schema.json';
 import { bundledMarkerIds } from '../markers/catalog';
 import { resolveView } from './resolve';
+import { TaxonomyError } from './taxonomy';
 import type {
   LeadershipPosition,
   OrgDocument,
@@ -147,6 +148,43 @@ function resolvedLeadershipErrors(document: OrgDocument, viewId: string, owner: 
   return [];
 }
 
+function resolvedTaxonomyErrors(document: OrgDocument, viewId: string, owner: string): string[] {
+  try {
+    resolveView(document, { viewId, selectedGroups: [] });
+  } catch (error) {
+    if (error instanceof TaxonomyError) return [`${owner}/resolved/taxonomy: ${error.message}`];
+  }
+  return [];
+}
+
+function selectableTaxonomyErrors(document: OrgDocument, proposal: Proposal): string[] {
+  const groups = proposal.patchGroups ?? [];
+  const byId = new Map(groups.map((group) => [group.id, group]));
+  const closure = (initial: readonly string[]): string[] => {
+    const selected = new Set<string>();
+    const pending = [...initial];
+    while (pending.length > 0) {
+      const id = pending.pop()!;
+      if (selected.has(id)) continue;
+      selected.add(id);
+      pending.push(...(byId.get(id)?.requires ?? []));
+    }
+    return groups.filter((group) => selected.has(group.id)).map((group) => group.id);
+  };
+  const locked = groups.filter((group) => group.locked).map((group) => group.id);
+  for (const group of groups) {
+    if (!group.patches.some((patch) => patch.type.includes('taxonomy') || patch.type.includes('comparison-tier'))) continue;
+    try {
+      resolveView(document, { viewId: proposal.id, selectedGroups: closure([...locked, group.id]) });
+    } catch (error) {
+      if (error instanceof TaxonomyError) {
+        return [`proposal/${escapeJsonPointer(proposal.id)}/resolved/taxonomy: ${error.message}`];
+      }
+    }
+  }
+  return [];
+}
+
 function hasLeadershipData(document: OrgDocument): boolean {
   if (Object.values(document.nodes).some((node) => node.leadership !== undefined)) return true;
   if (document.snapshots.some((snapshot) =>
@@ -162,6 +200,25 @@ function hasLeadershipData(document: OrgDocument): boolean {
     return proposal.patchGroups?.some((group) => group.patches.some((patch) =>
       (patch.type === 'set-node' || patch.type === 'add-node') && patch.value?.leadership !== undefined
     )) ?? false;
+  });
+}
+
+function hasTaxonomyData(document: OrgDocument): boolean {
+  if (Object.values(document.nodes).some((node) => node.taxonomyAssignments !== undefined)) return true;
+  if (document.snapshots.some((snapshot) =>
+    snapshot.taxonomy !== undefined || Object.values(snapshot.nodes).some((node) => node.taxonomyAssignments !== undefined)
+  )) return true;
+  return document.proposals.some((proposal) => {
+    if (proposal.snapshot?.taxonomy !== undefined) return true;
+    const patches = [
+      ...(proposal.patches ?? []),
+      ...(proposal.patchGroups ?? []).flatMap((group) => group.patches),
+    ];
+    return patches.some((patch) =>
+      patch.type.includes('taxonomy') ||
+      patch.type.includes('comparison-tier') ||
+      ((patch.type === 'set-node' || patch.type === 'add-node') && patch.value?.taxonomyAssignments !== undefined)
+    );
   });
 }
 
@@ -396,6 +453,7 @@ export function validateDocument(input: unknown): ValidationResult {
 
   const document = input as OrgDocument;
   const hasLeadership = hasLeadershipData(document);
+  const hasTaxonomy = hasTaxonomyData(document);
   const fatalErrors: string[] = [];
   const knownNodes = new Set(Object.keys(document.nodes));
   const idOwners = new Map<string, IdOwner>();
@@ -438,6 +496,9 @@ export function validateDocument(input: unknown): ValidationResult {
     Object.entries(snapshot.nodes).forEach(([id, state]) => {
       fatalErrors.push(...leadershipErrors(`snapshot/${snapshot.id}/nodes/${escapeJsonPointer(id)}`, state.leadership));
     });
+    if (hasTaxonomy) {
+      fatalErrors.push(...resolvedTaxonomyErrors(document, snapshot.id, `snapshot/${escapeJsonPointer(snapshot.id)}`));
+    }
   }
   Object.entries(document.nodes).forEach(([id, node]) => {
     fatalErrors.push(...leadershipErrors(`nodes/${escapeJsonPointer(id)}`, node.leadership));
@@ -578,6 +639,21 @@ export function validateDocument(input: unknown): ValidationResult {
             `proposal/${escapeJsonPointer(proposal.id)}`,
           );
           if (leadershipResult.length > 0) mutableViewErrors.set(proposal.id, leadershipResult);
+        }
+        if (hasTaxonomy) {
+          const taxonomyResult = resolvedTaxonomyErrors(
+            document,
+            proposal.id,
+            `proposal/${escapeJsonPointer(proposal.id)}`,
+          );
+          if (taxonomyResult.length > 0) mutableViewErrors.set(proposal.id, taxonomyResult);
+          const selectableResult = selectableTaxonomyErrors(document, proposal);
+          if (selectableResult.length > 0) {
+            mutableViewErrors.set(proposal.id, [
+              ...(mutableViewErrors.get(proposal.id) ?? []),
+              ...selectableResult,
+            ]);
+          }
         }
         relationshipStates.set(proposal.id, result.relationships);
       }
