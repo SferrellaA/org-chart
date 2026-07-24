@@ -226,6 +226,57 @@ test('visible organization tree supports roving arrow traversal and activation',
     .toHaveAttribute('aria-expanded', 'false');
 });
 
+test('internal treeitems with subordinate organizations toggle their browser tree subtree', async ({ page }) => {
+  const documentData = {
+    title: 'Internal owner demo',
+    nodes: {
+      root: { name: 'Root' },
+      office: { name: 'Office' },
+      agency: { name: 'Agency' },
+    },
+    snapshots: [{
+      id: 'current',
+      label: 'Current',
+      nodes: { root: {}, office: {}, agency: {} },
+      hierarchy: [
+        { child: 'office', parent: 'root', relationship: 'internal' },
+        { child: 'agency', parent: 'office', relationship: 'subordinate' },
+      ],
+    }],
+    proposals: [],
+  };
+  const src = `data:application/json,${encodeURIComponent(JSON.stringify(documentData))}`;
+  await ready(page);
+  await page.locator('org-delta-chart').evaluate((chart, value) => {
+    chart.setAttribute('src', value);
+  }, src);
+  await expect(page.getByRole('status')).toContainText('Current ready');
+
+  const tree = page.getByRole('tree', { name: 'Organization tree navigation' });
+  const office = tree.getByRole('treeitem', {
+    name: 'Office, internal unit, level 2', exact: true,
+  });
+  const agency = tree.getByRole('treeitem', {
+    name: 'Agency, subordinate organization, level 3', exact: true,
+  });
+
+  await expect(office).toHaveAttribute('aria-expanded', 'true');
+  await expect(agency).toHaveCount(1);
+  await office.focus();
+  await office.press(' ');
+  await expect(office).toHaveAttribute('aria-expanded', 'false');
+  await expect(agency).toHaveCount(0);
+  await expect(page.locator('aside.details')).toBeHidden();
+  await expect(tree.locator('[data-activate-id="agency"][tabindex="0"]')).toHaveCount(0);
+
+  await office.press('ArrowRight');
+  await expect(office).toHaveAttribute('aria-expanded', 'true');
+  await office.press('ArrowRight');
+  await expect(agency).toBeFocused();
+  await agency.press('ArrowLeft');
+  await expect(office).toBeFocused();
+});
+
 test('accessibility semantics describe hierarchy, internals, relationships, and changes', async ({ page }) => {
   await ready(page);
   const tree = page.getByRole('tree', { name: 'Organization tree navigation' });

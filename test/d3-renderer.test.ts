@@ -495,6 +495,47 @@ describe('D3OrgChartRenderer', () => {
     expect(item('grandchild')).toBeNull();
   });
 
+  it('toggles subordinate organizations owned by internal treeitems', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const onActivate = vi.fn();
+    const renderer = new D3OrgChartRenderer(host, { onActivate });
+    renderer.render(view([
+      node({
+        internalRows: [{
+          id: 'office', name: 'Office', depth: 1, diffKind: 'unchanged',
+          hasSubordinateChildren: true,
+        }],
+      }),
+      node({
+        id: 'agency', name: 'Agency', parentId: 'root', connectorSourceId: 'office',
+      }),
+    ]));
+    const item = (id: string): HTMLElement | null =>
+      host.querySelector(`[data-tree-navigation-item][data-activate-id="${id}"]`);
+
+    expect(item('root')?.querySelector(':scope > [role="group"] > [data-activate-id="office"]'))
+      .toBe(item('office'));
+    expect(item('office')?.querySelector(':scope > [role="group"] > [data-activate-id="agency"]'))
+      .toBe(item('agency'));
+    expect(item('office')?.getAttribute('aria-expanded')).toBe('true');
+
+    item('office')!.focus();
+    item('office')!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: ' ' }));
+
+    expect(onActivate).not.toHaveBeenCalled();
+    expect(item('office')?.getAttribute('aria-expanded')).toBe('false');
+    expect(item('agency')).toBeNull();
+    expect(host.querySelector('[data-activate-id="agency"][tabindex="0"]')).toBeNull();
+
+    item('office')!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowRight' }));
+    expect(item('office')?.getAttribute('aria-expanded')).toBe('true');
+    item('office')!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowRight' }));
+    expect(document.activeElement).toBe(item('agency'));
+    item('agency')!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowLeft' }));
+    expect(document.activeElement).toBe(item('office'));
+  });
+
   it('coerces unsafe runtime diff, depth, and count values before HTML interpolation', () => {
     const host = document.createElement('div');
     const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });

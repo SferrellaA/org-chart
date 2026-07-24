@@ -540,7 +540,8 @@ export class D3OrgChartRenderer implements ChartRenderer {
     const all: NavigationItem[] = [];
     const byId = new Map<string, NavigationItem>();
     const expandableIds = new Set(
-      view.nodes.flatMap((node) => node.parentId === undefined ? [] : [node.parentId]),
+      view.nodes.flatMap((node) => [node.parentId, node.connectorSourceId]
+        .filter((id): id is string => id !== undefined)),
     );
     for (const node of view.nodes) {
       const parentId = node.connectorSourceId && byId.has(node.connectorSourceId)
@@ -567,6 +568,7 @@ export class D3OrgChartRenderer implements ChartRenderer {
       for (const row of node.internalRows) {
         const internalParent = internalAtDepth.get(row.depth - 1);
         const internalParentId = internalParent?.id ?? node.id;
+        const expandable = expandableIds.has(row.id);
         const internal: NavigationItem = {
           id: row.id,
           ownerId: node.id,
@@ -574,8 +576,8 @@ export class D3OrgChartRenderer implements ChartRenderer {
           kind: 'internal',
           label: `${row.name}, internal unit, level ${level + row.depth}`,
           level: level + row.depth,
-          expandable: false,
-          expanded: false,
+          expandable,
+          expanded: expandable && (this.expansion.get(row.id) ?? true),
         };
         all.push(internal);
         byId.set(internal.id, internal);
@@ -660,13 +662,16 @@ export class D3OrgChartRenderer implements ChartRenderer {
     if (!expanded && this.currentView) {
       const collapsedIds = new Set([id]);
       for (const node of this.currentView.nodes) {
-        if (node.parentId && collapsedIds.has(node.parentId)) {
+        if (
+          (node.parentId && collapsedIds.has(node.parentId)) ||
+          (node.connectorSourceId && collapsedIds.has(node.connectorSourceId))
+        ) {
           collapsedIds.add(node.id);
           this.expansion.set(node.id, false);
         }
       }
     }
-    this.chart.setExpanded(id, expanded).render();
+    if (item.dataset.activateKind === 'node') this.chart.setExpanded(id, expanded).render();
     this.syncNavigationTree(id);
     this.scheduleAfterLayout();
   }
