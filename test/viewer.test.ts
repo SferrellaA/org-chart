@@ -196,6 +196,19 @@ describe('example pages', () => {
     );
     expect(iframe?.getAttribute('title')).toBeTruthy();
   });
+
+  it('uses the production bundle on the benchmark page', () => {
+    const root = resolve(import.meta.dirname, '..');
+    const html = readFileSync(resolve(root, 'examples/benchmark.html'), 'utf8');
+    const page = new DOMParser().parseFromString(html, 'text/html');
+    const script = page.querySelector('script[type="module"]');
+
+    expect(html).not.toContain('/src/');
+    expect(page.querySelector('org-delta-chart')?.getAttribute('src')).toBe(
+      './generated-5000.json',
+    );
+    expect(script?.getAttribute('src')).toBe('/dist/org-delta-chart.js');
+  });
 });
 
 describe('viewer build', () => {
