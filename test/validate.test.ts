@@ -38,6 +38,28 @@ describe('validateDocument', () => {
     expect(validateDocument(document).ok).toBe(true);
   });
 
+  it('accepts comparison tiers, taxonomy systems, and node assignments', () => {
+    const document = cloneValidDocument();
+    document.nodes.usaid!.taxonomyAssignments = { 'usaf-echelon': 'wing' };
+    document.snapshots[0]!.taxonomy = {
+      comparisonTiers: [
+        { id: 'division-equivalent', label: 'Division equivalent' },
+        { id: 'wing', label: 'Wing' },
+      ],
+      systems: [{
+        id: 'usaf-echelon',
+        label: 'USAF echelon',
+        levels: [{ id: 'wing', label: 'Wing', tier: 'wing' }],
+      }],
+    };
+
+    expect(validateDocument(document)).toEqual({
+      ok: true,
+      value: document,
+      viewErrors: new Map(),
+    });
+  });
+
   it.each(['ID with spaces', '組織/部門', `quoted "ID" -> next`])(
     'accepts printable stable IDs and matching references: %s',
     (id) => {
@@ -137,6 +159,31 @@ describe('validateDocument', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.viewErrors.size).toBe(0);
+  });
+
+  it('accepts every granular taxonomy patch wire shape', () => {
+    const document = cloneValidDocument();
+    delete document.proposals[0]!.patchGroups;
+    document.proposals[0]!.patches = [
+      { type: 'add-comparison-tier', tier: { id: 'wing', label: 'Wing' } },
+      { type: 'set-comparison-tier', tier: 'wing', value: { label: 'Wing equivalent' } },
+      { type: 'remove-comparison-tier', tier: 'wing' },
+      { type: 'set-comparison-tier-order', tiers: [] },
+      { type: 'add-taxonomy-system', taxonomy: { id: 'usaf', label: 'USAF' } },
+      { type: 'set-taxonomy-system', taxonomy: 'usaf', value: { label: 'Air Force' } },
+      { type: 'remove-taxonomy-system', taxonomy: 'usaf' },
+      {
+        type: 'add-taxonomy-level',
+        taxonomy: 'usaf',
+        level: { id: 'wing', label: 'Wing', tier: 'wing' },
+      },
+      { type: 'set-taxonomy-level', taxonomy: 'usaf', level: 'wing', value: { tier: 'wing' } },
+      { type: 'remove-taxonomy-level', taxonomy: 'usaf', level: 'wing' },
+      { type: 'set-taxonomy-assignment', node: 'usaid', taxonomy: 'usaf', level: 'wing' },
+      { type: 'remove-taxonomy-assignment', node: 'usaid', taxonomy: 'usaf' },
+    ];
+
+    expect(validateDocument(document).ok).toBe(true);
   });
 
   it('accepts leadership billets with authorized and occupant rank markers', () => {

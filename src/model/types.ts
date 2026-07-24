@@ -3,6 +3,39 @@ export interface Source {
   url: string;
 }
 
+export interface EntityDetails {
+  note?: string;
+  sources?: readonly Source[];
+}
+
+export interface ComparisonTier extends EntityDetails {
+  id: string;
+  label: string;
+}
+
+export interface TaxonomyLevel extends EntityDetails {
+  id: string;
+  label: string;
+  tier: string;
+}
+
+export interface TaxonomySystem extends EntityDetails {
+  id: string;
+  label: string;
+  levels: readonly TaxonomyLevel[];
+}
+
+export interface TaxonomyState {
+  comparisonTiers: readonly ComparisonTier[];
+  systems: readonly TaxonomySystem[];
+}
+
+export interface ResolvedTaxonomyAssignment {
+  systemId: string;
+  levelId: string;
+  tierId: string;
+}
+
 export interface BundledRankMarker {
   type: 'bundled';
   id: string;
@@ -52,6 +85,7 @@ export interface NodeState {
   sources?: readonly Source[];
   metadata?: Readonly<Record<string, string | number | boolean | null>>;
   leadership?: readonly LeadershipPosition[];
+  taxonomyAssignments?: Readonly<Record<string, string>>;
 }
 
 export interface ImageSymbol {
@@ -96,6 +130,7 @@ export interface Relationship {
 export interface SnapshotState {
   nodes: Record<string, NodeState>;
   hierarchy: readonly HierarchyEdge[];
+  taxonomy?: TaxonomyState;
 }
 
 export interface Snapshot extends SnapshotState {
@@ -155,6 +190,89 @@ export interface SetRelationshipPatch extends PatchDetails {
   value: Partial<Omit<Relationship, 'id'>>;
 }
 
+export interface AddComparisonTierPatch extends PatchDetails {
+  type: 'add-comparison-tier';
+  tier: ComparisonTier;
+}
+
+export interface SetComparisonTierPatch extends PatchDetails {
+  type: 'set-comparison-tier';
+  tier: string;
+  value: Partial<Omit<ComparisonTier, 'id'>>;
+}
+
+export interface RemoveComparisonTierPatch extends PatchDetails {
+  type: 'remove-comparison-tier';
+  tier: string;
+}
+
+export interface SetComparisonTierOrderPatch extends PatchDetails {
+  type: 'set-comparison-tier-order';
+  tiers: readonly string[];
+}
+
+export interface AddTaxonomySystemPatch extends PatchDetails {
+  type: 'add-taxonomy-system';
+  taxonomy: Omit<TaxonomySystem, 'levels'>;
+}
+
+export interface SetTaxonomySystemPatch extends PatchDetails {
+  type: 'set-taxonomy-system';
+  taxonomy: string;
+  value: Partial<Omit<TaxonomySystem, 'id' | 'levels'>>;
+}
+
+export interface RemoveTaxonomySystemPatch extends PatchDetails {
+  type: 'remove-taxonomy-system';
+  taxonomy: string;
+}
+
+export interface AddTaxonomyLevelPatch extends PatchDetails {
+  type: 'add-taxonomy-level';
+  taxonomy: string;
+  level: TaxonomyLevel;
+}
+
+export interface SetTaxonomyLevelPatch extends PatchDetails {
+  type: 'set-taxonomy-level';
+  taxonomy: string;
+  level: string;
+  value: Partial<Omit<TaxonomyLevel, 'id'>>;
+}
+
+export interface RemoveTaxonomyLevelPatch extends PatchDetails {
+  type: 'remove-taxonomy-level';
+  taxonomy: string;
+  level: string;
+}
+
+export interface SetTaxonomyAssignmentPatch extends PatchDetails {
+  type: 'set-taxonomy-assignment';
+  node: string;
+  taxonomy: string;
+  level: string;
+}
+
+export interface RemoveTaxonomyAssignmentPatch extends PatchDetails {
+  type: 'remove-taxonomy-assignment';
+  node: string;
+  taxonomy: string;
+}
+
+export type TaxonomyPatch =
+  | AddComparisonTierPatch
+  | SetComparisonTierPatch
+  | RemoveComparisonTierPatch
+  | SetComparisonTierOrderPatch
+  | AddTaxonomySystemPatch
+  | SetTaxonomySystemPatch
+  | RemoveTaxonomySystemPatch
+  | AddTaxonomyLevelPatch
+  | SetTaxonomyLevelPatch
+  | RemoveTaxonomyLevelPatch
+  | SetTaxonomyAssignmentPatch
+  | RemoveTaxonomyAssignmentPatch;
+
 export type Patch =
   | AddNodePatch
   | RemoveNodePatch
@@ -163,7 +281,8 @@ export type Patch =
   | RemoveParentPatch
   | AddRelationshipPatch
   | RemoveRelationshipPatch
-  | SetRelationshipPatch;
+  | SetRelationshipPatch
+  | TaxonomyPatch;
 
 export interface PatchGroup {
   id: string;
@@ -220,6 +339,7 @@ export interface ResolvedNode extends NodeState {
   name: string;
   aliases?: readonly string[];
   symbol?: Symbol;
+  resolvedTaxonomyAssignments?: readonly ResolvedTaxonomyAssignment[];
 }
 
 export interface ResolvedParent {
@@ -241,6 +361,7 @@ export interface ResolvedChart {
   parents: ReadonlyMap<string, ResolvedParent>;
   relationships: ReadonlyMap<string, Relationship>;
   semanticAnnotations: readonly SemanticAnnotation[];
+  taxonomy?: TaxonomyState;
   presentation: PresentationDefaults;
 }
 

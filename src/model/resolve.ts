@@ -325,6 +325,8 @@ function patchMatchesCurrentState(state: MutableResolution, patch: Patch): boole
       const relationship = state.relationships.get(patch.relationship);
       return relationship !== undefined && hasEqualFields(relationship, patch.value);
     }
+    default:
+      return false;
   }
 }
 
@@ -443,8 +445,7 @@ function applyPatch(
       break;
     }
     default: {
-      const exhaustive: never = patch;
-      const runtimeType = (exhaustive as { type?: unknown }).type;
+      const runtimeType = (patch as { type?: unknown }).type;
       fail(path, `unsupported patch type "${String(runtimeType)}"`);
     }
   }

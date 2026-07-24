@@ -155,6 +155,66 @@
       "type": "array",
       "items": { "$ref": "#/$defs/leadershipPosition" }
     },
+    "taxonomyAssignments": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/id" },
+      "additionalProperties": { "$ref": "#/$defs/id" }
+    },
+    "comparisonTier": {
+      "type": "object",
+      "required": ["id", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "label": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" },
+        "sources": { "$ref": "#/$defs/sources" }
+      }
+    },
+    "taxonomyLevel": {
+      "type": "object",
+      "required": ["id", "label", "tier"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "label": { "type": "string", "minLength": 1 },
+        "tier": { "$ref": "#/$defs/id" },
+        "note": { "type": "string" },
+        "sources": { "$ref": "#/$defs/sources" }
+      }
+    },
+    "taxonomySystem": {
+      "type": "object",
+      "required": ["id", "label", "levels"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "label": { "type": "string", "minLength": 1 },
+        "levels": { "type": "array", "items": { "$ref": "#/$defs/taxonomyLevel" } },
+        "note": { "type": "string" },
+        "sources": { "$ref": "#/$defs/sources" }
+      }
+    },
+    "taxonomySystemDefinition": {
+      "type": "object",
+      "required": ["id", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "label": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" },
+        "sources": { "$ref": "#/$defs/sources" }
+      }
+    },
+    "taxonomyState": {
+      "type": "object",
+      "required": ["comparisonTiers", "systems"],
+      "additionalProperties": false,
+      "properties": {
+        "comparisonTiers": { "type": "array", "items": { "$ref": "#/$defs/comparisonTier" } },
+        "systems": { "type": "array", "items": { "$ref": "#/$defs/taxonomySystem" } }
+      }
+    },
     "nodeState": {
       "type": "object",
       "additionalProperties": false,
@@ -163,6 +223,7 @@
         "note": { "type": "string" },
         "sources": { "$ref": "#/$defs/sources" },
         "leadership": { "$ref": "#/$defs/leadership" },
+        "taxonomyAssignments": { "$ref": "#/$defs/taxonomyAssignments" },
         "metadata": {
           "type": "object",
           "additionalProperties": {
@@ -191,6 +252,7 @@
         "note": { "type": "string" },
         "sources": { "$ref": "#/$defs/sources" },
         "leadership": { "$ref": "#/$defs/leadership" },
+        "taxonomyAssignments": { "$ref": "#/$defs/taxonomyAssignments" },
         "metadata": {
           "type": "object",
           "additionalProperties": {
@@ -256,7 +318,8 @@
         "hierarchy": {
           "type": "array",
           "items": { "$ref": "#/$defs/hierarchyEdge" }
-        }
+        },
+        "taxonomy": { "$ref": "#/$defs/taxonomyState" }
       }
     },
     "snapshot": {
@@ -274,7 +337,8 @@
         "hierarchy": {
           "type": "array",
           "items": { "$ref": "#/$defs/hierarchyEdge" }
-        }
+        },
+        "taxonomy": { "$ref": "#/$defs/taxonomyState" }
       }
     },
     "patchNote": { "type": "string" },
@@ -393,6 +457,150 @@
         "relatedNodes": { "$ref": "#/$defs/patchRelatedNodes" }
       }
     },
+    "patchDetails": {
+      "type": "object",
+      "properties": {
+        "note": { "$ref": "#/$defs/patchNote" },
+        "sources": { "$ref": "#/$defs/sources" },
+        "semantic": { "$ref": "#/$defs/patchSemantic" },
+        "relatedNodes": { "$ref": "#/$defs/patchRelatedNodes" }
+      }
+    },
+    "partialComparisonTier": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" },
+        "sources": { "$ref": "#/$defs/sources" }
+      }
+    },
+    "partialTaxonomySystem": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" },
+        "sources": { "$ref": "#/$defs/sources" }
+      }
+    },
+    "partialTaxonomyLevel": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "tier": { "$ref": "#/$defs/id" },
+        "note": { "type": "string" },
+        "sources": { "$ref": "#/$defs/sources" }
+      }
+    },
+    "taxonomyPatch": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "allOf": [
+        { "$ref": "#/$defs/patchDetails" },
+        {
+          "oneOf": [
+            {
+              "required": ["type", "tier"],
+              "properties": {
+                "type": { "const": "add-comparison-tier" },
+                "tier": { "$ref": "#/$defs/comparisonTier" }
+              }
+            },
+            {
+              "required": ["type", "tier", "value"],
+              "properties": {
+                "type": { "const": "set-comparison-tier" },
+                "tier": { "$ref": "#/$defs/id" },
+                "value": { "$ref": "#/$defs/partialComparisonTier" }
+              }
+            },
+            {
+              "required": ["type", "tier"],
+              "properties": {
+                "type": { "const": "remove-comparison-tier" },
+                "tier": { "$ref": "#/$defs/id" }
+              }
+            },
+            {
+              "required": ["type", "tiers"],
+              "properties": {
+                "type": { "const": "set-comparison-tier-order" },
+                "tiers": { "type": "array", "items": { "$ref": "#/$defs/id" }, "uniqueItems": true }
+              }
+            },
+            {
+              "required": ["type", "taxonomy"],
+              "properties": {
+                "type": { "const": "add-taxonomy-system" },
+                "taxonomy": { "$ref": "#/$defs/taxonomySystemDefinition" }
+              }
+            },
+            {
+              "required": ["type", "taxonomy", "value"],
+              "properties": {
+                "type": { "const": "set-taxonomy-system" },
+                "taxonomy": { "$ref": "#/$defs/id" },
+                "value": { "$ref": "#/$defs/partialTaxonomySystem" }
+              }
+            },
+            {
+              "required": ["type", "taxonomy"],
+              "properties": {
+                "type": { "const": "remove-taxonomy-system" },
+                "taxonomy": { "$ref": "#/$defs/id" }
+              }
+            },
+            {
+              "required": ["type", "taxonomy", "level"],
+              "properties": {
+                "type": { "const": "add-taxonomy-level" },
+                "taxonomy": { "$ref": "#/$defs/id" },
+                "level": { "$ref": "#/$defs/taxonomyLevel" }
+              }
+            },
+            {
+              "required": ["type", "taxonomy", "level", "value"],
+              "properties": {
+                "type": { "const": "set-taxonomy-level" },
+                "taxonomy": { "$ref": "#/$defs/id" },
+                "level": { "$ref": "#/$defs/id" },
+                "value": { "$ref": "#/$defs/partialTaxonomyLevel" }
+              }
+            },
+            {
+              "required": ["type", "taxonomy", "level"],
+              "properties": {
+                "type": { "const": "remove-taxonomy-level" },
+                "taxonomy": { "$ref": "#/$defs/id" },
+                "level": { "$ref": "#/$defs/id" }
+              }
+            },
+            {
+              "required": ["type", "node", "taxonomy", "level"],
+              "properties": {
+                "type": { "const": "set-taxonomy-assignment" },
+                "node": { "$ref": "#/$defs/id" },
+                "taxonomy": { "$ref": "#/$defs/id" },
+                "level": { "$ref": "#/$defs/id" }
+              }
+            },
+            {
+              "required": ["type", "node", "taxonomy"],
+              "properties": {
+                "type": { "const": "remove-taxonomy-assignment" },
+                "node": { "$ref": "#/$defs/id" },
+                "taxonomy": { "$ref": "#/$defs/id" }
+              }
+            }
+          ]
+        }
+      ]
+    },
     "patch": {
       "oneOf": [
         { "$ref": "#/$defs/addNodePatch" },
@@ -402,7 +610,8 @@
         { "$ref": "#/$defs/removeParentPatch" },
         { "$ref": "#/$defs/addRelationshipPatch" },
         { "$ref": "#/$defs/removeRelationshipPatch" },
-        { "$ref": "#/$defs/setRelationshipPatch" }
+        { "$ref": "#/$defs/setRelationshipPatch" },
+        { "$ref": "#/$defs/taxonomyPatch" }
       ]
     },
     "patchGroup": {

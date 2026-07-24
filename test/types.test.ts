@@ -3,6 +3,7 @@ import { expect, it } from 'vitest';
 import type {
   NodeState,
   OrgDocument,
+  Patch,
   PatchGroup,
   ResolvedParent,
   SemanticAnnotation,
@@ -69,4 +70,60 @@ it('exposes readonly collections and exact metadata and annotation shapes', () =
   expect(annotation.nodes).toEqual(['state', 'usaid']);
   expect(state.metadata?.note).toBeNull();
   expect(parent.note).toBe('Reports through headquarters');
+});
+
+it('exposes versioned taxonomy catalogs, assignments, and granular patches', () => {
+  const document: OrgDocument = {
+    title: 'Taxonomy example',
+    nodes: {
+      wing: {
+        name: 'Example Wing',
+        taxonomyAssignments: { 'usaf-echelon': 'wing' },
+      },
+    },
+    snapshots: [{
+      id: 'current',
+      label: 'Current',
+      nodes: { wing: {} },
+      hierarchy: [],
+      taxonomy: {
+        comparisonTiers: [
+          { id: 'division-equivalent', label: 'Division equivalent' },
+          { id: 'wing', label: 'Wing' },
+        ],
+        systems: [{
+          id: 'usaf-echelon',
+          label: 'USAF echelon',
+          levels: [{ id: 'wing', label: 'Wing', tier: 'wing' }],
+        }],
+      },
+    }],
+    proposals: [],
+  };
+  const patches: Patch[] = [
+    { type: 'add-comparison-tier', tier: { id: 'command', label: 'Command' } },
+    { type: 'set-comparison-tier', tier: 'wing', value: { label: 'Wing equivalent' } },
+    { type: 'remove-comparison-tier', tier: 'command' },
+    { type: 'set-comparison-tier-order', tiers: ['division-equivalent', 'wing'] },
+    { type: 'add-taxonomy-system', taxonomy: { id: 'army-echelon', label: 'Army echelon' } },
+    { type: 'set-taxonomy-system', taxonomy: 'usaf-echelon', value: { label: 'Air Force echelon' } },
+    { type: 'remove-taxonomy-system', taxonomy: 'army-echelon' },
+    {
+      type: 'add-taxonomy-level',
+      taxonomy: 'usaf-echelon',
+      level: { id: 'air-division', label: 'Air Division', tier: 'division-equivalent' },
+    },
+    {
+      type: 'set-taxonomy-level',
+      taxonomy: 'usaf-echelon',
+      level: 'wing',
+      value: { tier: 'division-equivalent' },
+    },
+    { type: 'remove-taxonomy-level', taxonomy: 'usaf-echelon', level: 'air-division' },
+    { type: 'set-taxonomy-assignment', node: 'wing', taxonomy: 'usaf-echelon', level: 'wing' },
+    { type: 'remove-taxonomy-assignment', node: 'wing', taxonomy: 'usaf-echelon' },
+  ];
+
+  expect(document.snapshots[0]?.taxonomy?.systems[0]?.id).toBe('usaf-echelon');
+  expect(patches).toHaveLength(12);
 });
