@@ -14,7 +14,7 @@
     "./schema": "./dist/org-delta-chart.schema.json"
   },
   "scripts": {
-    "build": "vite build && tsc -p tsconfig.build.json && vite build --config vite.viewer.config.ts",
+    "build": "vite build && tsx scripts/copy-schema.ts && tsc -p tsconfig.build.json && vite build --config vite.viewer.config.ts",
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
