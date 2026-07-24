@@ -388,7 +388,7 @@ describe('D3OrgChartRenderer', () => {
     expect(container.textContent).toContain('<script>alert(1)</script>');
   });
 
-  it('renders a separate flat semantic tree without assigning tree roles to visual nodes', () => {
+  it('renders a separate grouped semantic tree without assigning tree roles to visual nodes', () => {
     const host = document.createElement('div');
     const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
     const root = node({
@@ -400,11 +400,18 @@ describe('D3OrgChartRenderer', () => {
     renderer.render(view([root, node({ id: 'child', name: 'Child', parentId: 'root' })]));
 
     const tree = host.querySelector<HTMLElement>('[role="tree"]')!;
-    const items = [...tree.children] as HTMLElement[];
+    const topLevelItems = [...tree.children] as HTMLElement[];
+    const items = [...tree.querySelectorAll<HTMLElement>('[role="treeitem"]')];
     expect(tree.getAttribute('aria-label')).toBe('Organization tree navigation');
+    expect(topLevelItems).toHaveLength(1);
+    expect(topLevelItems[0]!.getAttribute('role')).toBe('treeitem');
     expect(items).toHaveLength(3);
-    expect(items.every((item) => item.getAttribute('role') === 'treeitem')).toBe(true);
-    expect(items.every((item) => item.childElementCount === 0)).toBe(true);
+    expect(items.every((item) => item.querySelector('button,a,input,select,textarea') === null))
+      .toBe(true);
+    const childGroup = topLevelItems[0]!.querySelector<HTMLElement>(':scope > [role="group"]');
+    expect(childGroup).not.toBeNull();
+    expect([...childGroup!.children].map((child) => child.getAttribute('role')))
+      .toEqual(['treeitem', 'treeitem']);
     expect(items.map((item) => [item.dataset.activateId, item.getAttribute('aria-level')]))
       .toEqual([['root', '1'], ['inside', '2'], ['child', '2']]);
     expect(items.map((item) => item.getAttribute('aria-label'))).toEqual([

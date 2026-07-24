@@ -146,7 +146,11 @@ test('visible organization tree supports roving arrow traversal and activation',
   const items = tree.getByRole('treeitem');
   expect(await items.count()).toBeGreaterThan(1);
   for (const treeitem of await items.all()) {
-    expect(await treeitem.locator('[role], button, a, input, select').count()).toBe(0);
+    expect(await treeitem.locator('button, a, input, select, textarea').count()).toBe(0);
+    const nestedRoles = await treeitem.locator('[role]').evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute('role')),
+    );
+    expect(nestedRoles.every((role) => role === 'group' || role === 'treeitem')).toBe(true);
   }
   await expect(items.first()).toHaveAttribute('aria-level', /[1-9]/);
   await expect(items.first()).toHaveAttribute('tabindex', '0');

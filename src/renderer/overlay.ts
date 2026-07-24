@@ -254,7 +254,7 @@ export function syncOverlay(
     const sourceName = plainText(internalNames.get(node.connectorSourceId) ?? '');
     const targetName = plainText(node.name);
     const label = sourceName && targetName
-      ? `${sourceName} contains reporting line to ${targetName}`
+      ? `${sourceName} internal containment relationship to ${targetName}`
       : undefined;
     appendPathPair(svg, existing, retained, connectorPath(
       relativeRect(source.element.getBoundingClientRect(), hostRect, host),

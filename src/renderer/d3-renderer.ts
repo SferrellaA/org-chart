@@ -501,8 +501,16 @@ export class D3OrgChartRenderer implements ChartRenderer {
     const rovingId = this.navigationItems().find((item) => item.tabIndex === 0)
       ?.dataset.activateId;
     const entries = this.buildNavigationItems(view);
-    const selectedId = focusedId ?? rovingId ?? preferredId ?? entries[0]?.id;
-    const items = entries.map((entry) => {
+    const visibleIds = new Set(entries.map(({ id }) => id));
+    const selectedId = [focusedId, rovingId, preferredId].find((id) => id && visibleIds.has(id))
+      ?? entries[0]?.id;
+    const byParent = new Map<string | undefined, NavigationItem[]>();
+    for (const entry of entries) {
+      const siblings = byParent.get(entry.parentId) ?? [];
+      siblings.push(entry);
+      byParent.set(entry.parentId, siblings);
+    }
+    const renderItem = (entry: NavigationItem): HTMLElement => {
       const item = document.createElement('div');
       item.setAttribute('role', 'treeitem');
       item.setAttribute('aria-label', entry.label);
@@ -514,10 +522,18 @@ export class D3OrgChartRenderer implements ChartRenderer {
       if (entry.parentId !== undefined) item.dataset.treeParentId = entry.parentId;
       if (entry.expandable) item.setAttribute('aria-expanded', String(entry.expanded));
       item.tabIndex = entry.id === selectedId ? 0 : -1;
+      const children = byParent.get(entry.id) ?? [];
+      if (children.length > 0) {
+        const group = document.createElement('div');
+        group.setAttribute('role', 'group');
+        group.append(...children.map(renderItem));
+        item.append(group);
+      }
       return item;
-    });
-    this.navigationTree.replaceChildren(...items);
-    if (focusedId) items.find((item) => item.dataset.activateId === selectedId)?.focus();
+    };
+    this.navigationTree.replaceChildren(...(byParent.get(undefined) ?? []).map(renderItem));
+    if (focusedId) this.navigationItems()
+      .find((item) => item.dataset.activateId === selectedId)?.focus();
   }
 
   private buildNavigationItems(view: RenderView): NavigationItem[] {

@@ -225,11 +225,13 @@ describe('ConnectorOverlay', () => {
     const paths = host.querySelectorAll<SVGPathElement>('[data-hierarchy-id]');
     const visible = paths[0]!;
     const hit = paths[1]!;
-    expect(hit.getAttribute('aria-label')).toBe('HR Office contains reporting line to Child Office');
+    expect(hit.getAttribute('aria-label')).toBe(
+      'HR Office internal containment relationship to Child Office',
+    );
     expect(hit.getAttribute('role')).toBe('button');
     expect(hit.getAttribute('tabindex')).toBe('0');
     expect(visible.querySelector('title')?.textContent).toBe(
-      'HR Office contains reporting line to Child Office',
+      'HR Office internal containment relationship to Child Office',
     );
   });
 
