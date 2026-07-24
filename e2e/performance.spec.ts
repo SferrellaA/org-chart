@@ -12,6 +12,10 @@ test('benchmark fixture is ready and exact search reveal remains responsive', as
   await expect(page.getByRole('status')).toContainText('ready', { timeout: 10_000 });
   const readyMs = performance.now() - start;
   console.info(`benchmark navigation-to-ready: ${readyMs.toFixed(1)}ms`);
+  testInfo.annotations.push({
+    type: 'benchmark navigation-to-ready',
+    description: `${readyMs.toFixed(1)}ms`,
+  });
   await testInfo.attach('navigation-to-ready-ms', {
     body: readyMs.toFixed(1),
     contentType: 'text/plain',
@@ -26,6 +30,10 @@ test('benchmark fixture is ready and exact search reveal remains responsive', as
   await expect(page.getByRole('status')).toHaveText(/Revealed Office 4999\./, { timeout: 1_000 });
   const revealMs = performance.now() - revealStart;
   console.info(`benchmark exact search reveal: ${revealMs.toFixed(1)}ms`);
+  testInfo.annotations.push({
+    type: 'benchmark exact-search-reveal',
+    description: `${revealMs.toFixed(1)}ms`,
+  });
   await testInfo.attach('exact-search-reveal-ms', {
     body: revealMs.toFixed(1),
     contentType: 'text/plain',
