@@ -273,6 +273,19 @@ describe('resolveView', () => {
       name: 'Department of State',
       aliases: ['State Department'],
       symbol: { type: 'image', url: 'https://example.com/state.svg', alt: 'State seal' },
+      leadership: [
+        {
+          id: 'state-commander',
+          title: 'Commander',
+          authorizedRank: { label: 'Colonel', marker: { type: 'bundled', id: 'usaf-o6' } },
+          occupant: {
+            name: 'Alex Example',
+            rank: { label: 'Lieutenant Colonel', marker: { type: 'bundled', id: 'usaf-o5' } },
+            acting: true,
+          },
+          vacant: true,
+        } as never,
+      ],
     };
     document.relationships![0]!.sources = [
       { label: 'Relationship source', url: 'https://example.com/relationship' },
@@ -298,11 +311,19 @@ describe('resolveView', () => {
     const node = first.nodes.get('state')! as unknown as {
       aliases: string[];
       symbol: { alt: string };
+      leadership: Array<{
+        title: string;
+        authorizedRank: { label: string; marker: { id: string } };
+        occupant: { name: string; rank: { label: string }; acting: boolean };
+      }>;
       metadata: Record<string, number>;
       sources: { label: string }[];
     };
     node.aliases.push('Mutated alias');
     node.symbol.alt = 'Mutated symbol';
+    node.leadership[0]!.title = 'Mutated title';
+    node.leadership[0]!.authorizedRank.marker.id = 'mutated-marker';
+    node.leadership[0]!.occupant.rank.label = 'Mutated rank';
     node.metadata.budget = 99;
     node.sources[0]!.label = 'Mutated node source';
     (first.parents.get('state-hq')!.sources as unknown as { label: string }[])[0]!.label =
@@ -321,6 +342,13 @@ describe('resolveView', () => {
     expect(second.nodes.get('state')).toMatchObject({
       aliases: ['State Department'],
       symbol: { alt: 'State seal' },
+      leadership: [
+        {
+          title: 'Commander',
+          authorizedRank: { marker: { id: 'usaf-o6' } },
+          occupant: { rank: { label: 'Lieutenant Colonel' } },
+        },
+      ],
       metadata: { budget: 10 },
       sources: [{ label: 'Node source' }],
     });
@@ -333,6 +361,41 @@ describe('resolveView', () => {
       sources: [{ label: 'Patch source' }],
     });
     expect(second.presentation.focusNodes).toEqual(['state']);
+  });
+
+  it('replaces leadership through set-node patches', () => {
+    const document = cloneValidDocument();
+    document.nodes.state = {
+      name: document.nodes.state!.name,
+      ...document.nodes.state,
+      leadership: [{ id: 'wing-do', title: 'Director of Operations' }] as never,
+    };
+    delete document.proposals[0]!.patchGroups;
+    document.proposals[0]!.patches = [
+      {
+        type: 'set-node',
+        node: 'state',
+        value: {
+          leadership: [
+            {
+              id: 'wing-do',
+              title: 'Commander',
+              authorizedRank: { label: 'O-5', marker: { type: 'bundled', id: 'usaf-o5' } },
+            },
+          ],
+        } as never,
+      },
+    ];
+
+    const result = resolveView(document, { viewId: 'proposal-a', selectedGroups: [] });
+
+    expect(result.nodes.get('state')?.leadership).toEqual([
+      {
+        id: 'wing-do',
+        title: 'Commander',
+        authorizedRank: { label: 'O-5', marker: { type: 'bundled', id: 'usaf-o5' } },
+      },
+    ]);
   });
 
   it('applies explicitly selected groups in document order', () => {

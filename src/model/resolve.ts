@@ -1,4 +1,5 @@
 import type {
+  LeadershipPosition,
   NodeDefinition,
   OrgDocument,
   Patch,
@@ -63,13 +64,57 @@ function cloneSources(sources: readonly Source[] | undefined): Source[] | undefi
   return sources?.map((source) => ({ ...source }));
 }
 
+function cloneLeadership(leadership: readonly LeadershipPosition[] | undefined): LeadershipPosition[] | undefined {
+  return leadership?.map((position) => ({
+    ...position,
+    ...(position.authorizedRank
+      ? {
+          authorizedRank: {
+            ...position.authorizedRank,
+            ...(position.authorizedRank.marker ? { marker: { ...position.authorizedRank.marker } } : {}),
+          },
+        }
+      : {}),
+    ...(position.occupant
+      ? {
+          occupant: {
+            ...position.occupant,
+            ...(position.occupant.rank
+              ? {
+                  rank: {
+                    ...position.occupant.rank,
+                    ...(position.occupant.rank.marker ? { marker: { ...position.occupant.rank.marker } } : {}),
+                  },
+                }
+              : {}),
+          },
+        }
+      : {}),
+  }));
+}
+
 function cloneNode(id: string, node: NodeDefinition | ResolvedNode): ResolvedNode {
   const cloned: ResolvedNode = { ...node, id };
   if (node.aliases) cloned.aliases = [...node.aliases];
   if (node.symbol) cloned.symbol = { ...node.symbol };
   if (node.metadata) cloned.metadata = { ...node.metadata };
+  if (node.leadership) cloned.leadership = cloneLeadership(node.leadership)!;
   if (node.sources) cloned.sources = cloneSources(node.sources);
   return cloned;
+}
+
+function validateLeadershipIds(nodes: ReadonlyMap<string, ResolvedNode>, path: string): void {
+  const owners = new Map<string, string>();
+  for (const [nodeId, node] of nodes) {
+    for (const position of node.leadership ?? []) {
+      if (!position.id) continue;
+      const previous = owners.get(position.id);
+      if (previous) {
+        fail(path, `duplicate billet ID "${position.id}" on nodes "${previous}" and "${nodeId}"`);
+      }
+      owners.set(position.id, nodeId);
+    }
+  }
 }
 
 function cloneRelationship(relationship: Relationship): Relationship {
@@ -103,6 +148,7 @@ function resolveSnapshot(
     } as ResolvedParent);
   }
   validateHierarchy(nodes, parents, path);
+  validateLeadershipIds(nodes, path);
   return { nodes, parents };
 }
 
@@ -429,6 +475,7 @@ function applyPatchList(
     for (const effect of effects) context!.effects.delete(effect.target);
   });
   validateHierarchy(state.nodes, state.parents, finalPath);
+  validateLeadershipIds(state.nodes, finalPath);
 }
 
 function applySelectedPatchGroup(
@@ -458,6 +505,7 @@ function applySelectedPatchGroup(
     for (const effect of effects) context.effects.set(effect.target, effect.fingerprint);
   });
   validateHierarchy(state.nodes, state.parents, finalPath);
+  validateLeadershipIds(state.nodes, finalPath);
 }
 
 function globalRelationships(document: OrgDocument): Map<string, Relationship> {

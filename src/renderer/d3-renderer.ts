@@ -2,6 +2,7 @@
 // @ts-expect-error The adapter below defines the supported API surface it consumes.
 import { OrgChart } from 'd3-org-chart';
 import { ConnectorOverlay } from './overlay';
+import { bundledMarker } from '../markers/catalog';
 import type { ActivationHandler, ActivationKind } from './overlay';
 import {
   encodeHierarchyActivationId,
@@ -10,6 +11,7 @@ import {
   type RenderView,
 } from './types';
 import type { DiffKind } from '../model/diff';
+import type { LeadershipPosition, RankDisplay, RankMarker } from '../model/types';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
@@ -144,6 +146,62 @@ function activationAttributes(kind: ActivationKind, id: string): string {
   return `data-activate-kind="${kind}" data-activate-id="${escapeHtml(id)}"`;
 }
 
+function rankText(rank: RankDisplay | undefined): string {
+  if (!rank) return '';
+  if (rank.label) return rank.label;
+  const marker = rank.marker;
+  if (!marker) return '';
+  if (marker.type === 'text') return marker.text;
+  if (marker.type === 'emoji') return marker.label;
+  if (marker.type === 'image') return marker.alt;
+  return bundledMarker(marker.id)?.label ?? marker.id;
+}
+
+function renderMarker(marker: RankMarker | undefined): string {
+  if (!marker) return '';
+  if (marker.type === 'bundled') {
+    const bundled = bundledMarker(marker.id);
+    const label = escapeHtml(bundled?.label ?? marker.id);
+    const svg = bundled?.svg ?? '';
+    return `<span class="org-delta-rank-marker org-delta-rank-marker--bundled" data-marker-id="${escapeHtml(marker.id)}" role="img" aria-label="${label}">${svg}</span>`;
+  }
+  if (marker.type === 'image') {
+    return `<img class="org-delta-rank-marker" src="${escapeHtml(marker.url)}" alt="${escapeHtml(marker.alt)}" loading="lazy">`;
+  }
+  if (marker.type === 'text') {
+    return `<span class="org-delta-rank-marker org-delta-rank-marker--text">${escapeHtml(marker.text)}</span>`;
+  }
+  return `<span class="org-delta-rank-marker org-delta-rank-marker--emoji" role="img" aria-label="${escapeHtml(marker.label)}">${escapeHtml(marker.emoji)}</span>`;
+}
+
+function renderRank(rank: RankDisplay | undefined): string {
+  if (!rank) return '';
+  const label = rank.label ? `<span class="org-delta-rank-label">${escapeHtml(rank.label)}</span>` : '';
+  return `${renderMarker(rank.marker)}${label}`;
+}
+
+function renderLeadership(leadership: readonly LeadershipPosition[] | undefined): string {
+  return (leadership ?? []).map((position) => {
+    const primaryText = [rankText(position.authorizedRank), position.title].filter(Boolean).join(' ');
+    const primary = primaryText
+      ? `<div class="org-delta-leadership-primary">${renderRank(position.authorizedRank)}${position.title ? `<span class="org-delta-leadership-title">${escapeHtml(position.title)}</span>` : ''}</div>`
+      : '';
+    const occupantText = position.occupant
+      ? [
+          position.occupant.acting ? 'Acting' : undefined,
+          rankText(position.occupant.rank),
+          position.occupant.name,
+        ].filter(Boolean).join(' ')
+      : '';
+    const occupant = position.occupant
+      ? `<div class="org-delta-leadership-occupant">${position.occupant.acting ? '<span class="org-delta-leadership-badge">Acting</span>' : ''}${renderRank(position.occupant.rank)}<span>${escapeHtml(position.occupant.name)}</span></div>`
+      : '';
+    const vacant = position.vacant ? '<span class="org-delta-leadership-badge">Vacant</span>' : '';
+    const label = [primaryText, occupantText, position.vacant ? 'Vacant' : undefined].filter(Boolean).join('; ');
+    return `<div class="org-delta-leadership" aria-label="${escapeHtml(label)}">${primary}${occupant}${vacant}</div>`;
+  }).join('');
+}
+
 function renderNodeContent({ data: node }: D3HierarchyNode): string {
   if (isSynthetic(node)) return '';
   const nodeId = escapeHtml(node.id);
@@ -160,7 +218,7 @@ function renderNodeContent({ data: node }: D3HierarchyNode): string {
       ? ''
       : `<button type="button" class="org-delta-change org-delta-change--${rowDiffKind}" ${activationAttributes('change', row.id)} aria-label="View changes for ${escapeHtml(row.name)}">${rowDiffKind}</button>`;
     const internalLabel = `${row.name}, internal unit, depth ${safeDepth(row.depth)}${row.hasSubordinateChildren ? ', contains subordinate organizations' : ''}`;
-    return `<div class="org-delta-internal org-delta-internal--${rowDiffKind}" data-internal-id="${rowId}" data-depth="${safeDepth(row.depth)}"><button type="button" class="org-delta-internal-name" ${activationAttributes('internal', row.id)} aria-label="${escapeHtml(internalLabel)}">${escapeHtml(row.name)}</button>${row.hasSubordinateChildren ? '<span class="org-delta-subordinate-marker" aria-label="Has subordinate children"></span>' : ''}${change}</div>`;
+    return `<div class="org-delta-internal org-delta-internal--${rowDiffKind}" data-internal-id="${rowId}" data-depth="${safeDepth(row.depth)}"><button type="button" class="org-delta-internal-name" ${activationAttributes('internal', row.id)} aria-label="${escapeHtml(internalLabel)}">${escapeHtml(row.name)}</button>${row.hasSubordinateChildren ? '<span class="org-delta-subordinate-marker" aria-label="Has subordinate children"></span>' : ''}${change}${renderLeadership(row.leadership)}</div>`;
   }).join('');
   const internalCount = safeCount(node.hiddenInternalCount);
   const changeCount = safeCount(node.hiddenChangeCount);
@@ -173,7 +231,7 @@ function renderNodeContent({ data: node }: D3HierarchyNode): string {
   const change = nodeDiffKind === 'unchanged' && changeCount === 0
     ? ''
     : `<button type="button" class="org-delta-change org-delta-change--${nodeDiffKind}" ${activationAttributes('change', node.id)}>View changes</button>`;
-  return `<article class="${classes}" data-node-id="${nodeId}" data-diff-kind="${nodeDiffKind}"><button type="button" class="org-delta-node-name" ${activationAttributes('node', node.id)}>${escapeHtml(node.name)}</button>${change}${hiddenInternal}${hiddenChanges}<div class="org-delta-internal-rows">${rows}</div></article>`;
+  return `<article class="${classes}" data-node-id="${nodeId}" data-diff-kind="${nodeDiffKind}"><button type="button" class="org-delta-node-name" ${activationAttributes('node', node.id)}>${escapeHtml(node.name)}</button>${change}${hiddenInternal}${hiddenChanges}${renderLeadership(node.leadership)}<div class="org-delta-internal-rows">${rows}</div></article>`;
 }
 
 export class D3OrgChartRenderer implements ChartRenderer {
@@ -273,7 +331,7 @@ export class D3OrgChartRenderer implements ChartRenderer {
       .nodeWidth(({ data }) => isSynthetic(data) ? 1 : 280)
       .nodeHeight(({ data }) => isSynthetic(data)
         ? 1
-        : 88 + data.internalRows.length * 36)
+        : 88 + (data.leadership?.length ?? 0) * 44 + data.internalRows.length * 52 + data.internalRows.reduce((sum, row) => sum + (row.leadership?.length ?? 0) * 36, 0))
       .nodeContent(renderNodeContent)
       .compact(false)
       .duration(this.reducedMotion ? 0 : D3OrgChartRenderer.LAYOUT_DURATION)

@@ -1,5 +1,6 @@
-import type { NodeDiff, RelationshipDiff } from '../model/diff';
+import type { LeadershipDiff, NodeDiff, RelationshipDiff } from '../model/diff';
 import type {
+  LeadershipPosition,
   PatchGroup,
   Relationship,
   ResolvedNode,
@@ -12,6 +13,7 @@ export interface DetailsItem {
   title: string;
   kindLabel: string;
   note?: string;
+  leadership?: readonly string[];
   sources: readonly Source[];
 }
 
@@ -35,14 +37,65 @@ function details(
   kindLabel: string,
   note: string | undefined,
   sources: readonly Source[] | undefined,
+  leadership?: readonly string[],
 ): DetailsItem {
   const result: DetailsItem = { title, kindLabel, sources: safeSources(sources) };
   if (note !== undefined) result.note = note;
+  if (leadership !== undefined && leadership.length > 0) result.leadership = [...leadership];
   return result;
 }
 
+function rankLabel(rank: LeadershipPosition['authorizedRank'] | undefined): string | undefined {
+  if (!rank) return undefined;
+  if (rank.label) return rank.label;
+  const marker = rank.marker;
+  if (!marker) return undefined;
+  if (marker.type === 'text') return marker.text;
+  if (marker.type === 'emoji') return marker.label;
+  if (marker.type === 'image') return marker.alt;
+  return marker.id;
+}
+
+function leadershipLine(position: LeadershipPosition): string {
+  const primary = [rankLabel(position.authorizedRank), position.title].filter(Boolean).join(' ');
+  const occupant = position.occupant
+    ? [
+        position.occupant.acting ? 'Acting' : undefined,
+        rankLabel(position.occupant.rank),
+        position.occupant.name,
+      ].filter(Boolean).join(' ')
+    : undefined;
+  return [primary || undefined, occupant, position.vacant ? 'Vacant' : undefined]
+    .filter(Boolean)
+    .join('; ');
+}
+
+function leadershipLines(leadership: readonly LeadershipPosition[] | undefined): string[] {
+  return (leadership ?? []).map(leadershipLine);
+}
+
+function leadershipBeforeAfter(
+  before: readonly LeadershipPosition[] | undefined,
+  after: readonly LeadershipPosition[] | undefined,
+): string[] {
+  const lines: string[] = [];
+  for (const position of before ?? []) lines.push(`Before: ${leadershipLine(position)}`);
+  for (const position of after ?? []) lines.push(`After: ${leadershipLine(position)}`);
+  return lines;
+}
+
+function isLeadershipDiff(
+  change: NodeDiff | RelationshipDiff | LeadershipDiff | SemanticAnnotation,
+): change is LeadershipDiff {
+  return 'changes' in change && ('beforeNodeId' in change || 'afterNodeId' in change);
+}
+
+function isNodeDiff(change: NodeDiff | RelationshipDiff): change is NodeDiff {
+  return Boolean((change.before && 'name' in change.before) || (change.after && 'name' in change.after));
+}
+
 export function nodeDetails(node: ResolvedNode): DetailsItem {
-  return details(node.name, 'Node', node.note, node.sources);
+  return details(node.name, 'Node', node.note, node.sources, leadershipLines(node.leadership));
 }
 
 export function hierarchyDetails(
@@ -58,13 +111,25 @@ export function relationshipDetails(relationship: Relationship): DetailsItem {
   return details(relationship.label, relationship.type, relationship.note, relationship.sources);
 }
 
-export function changeDetails(change: NodeDiff | RelationshipDiff | SemanticAnnotation): DetailsItem {
+export function changeDetails(change: NodeDiff | RelationshipDiff | LeadershipDiff | SemanticAnnotation): DetailsItem {
+  if (isLeadershipDiff(change)) {
+    const lines = [
+      change.before ? `Before: ${leadershipLine(change.before)}` : undefined,
+      change.after ? `After: ${leadershipLine(change.after)}` : undefined,
+    ].filter((line): line is string => line !== undefined);
+    return details(change.id ?? 'Anonymous leadership', `${capitalize(change.kind)} leadership`, undefined, undefined, lines);
+  }
   if ('kind' in change && 'changes' in change) {
-    if ('before' in change || 'after' in change) {
+    if (isNodeDiff(change)) {
       const value = change.after ?? change.before;
-      if (value && 'name' in value) {
-        return details(value.name, `${capitalize(change.kind)} node`, value.note, value.sources);
+      if (value) {
+        const leadership = change.changes.includes('leadership')
+          ? leadershipBeforeAfter(change.before?.leadership, change.after?.leadership)
+          : undefined;
+        return details(value.name, `${capitalize(change.kind)} node`, value.note, value.sources, leadership);
       }
+    } else if ('before' in change || 'after' in change) {
+      const value = change.after ?? change.before;
       if (value) {
         return details(value.label, `${capitalize(change.kind)} relationship`, value.note, value.sources);
       }

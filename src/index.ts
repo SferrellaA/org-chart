@@ -36,6 +36,8 @@ export type * from './renderer/types';
 export { D3OrgChartRenderer } from './renderer/d3-renderer';
 export type { D3OrgChartRendererOptions } from './renderer/d3-renderer';
 export { syncOverlay } from './renderer/overlay';
+export { bundledMarker, bundledMarkerIds, bundledMarkers } from './markers/catalog';
+export type { BundledMarker } from './markers/catalog';
 
 import { OrgDeltaChartElement } from './component/org-delta-chart';
 

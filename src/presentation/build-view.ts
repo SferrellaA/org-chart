@@ -1,5 +1,5 @@
 import type { ChartDiff, DiffKind } from '../model/diff';
-import type { Relationship, ResolvedChart, ResolvedNode } from '../model/types';
+import type { LeadershipPosition, Relationship, ResolvedChart, ResolvedNode } from '../model/types';
 import type {
   InternalRow,
   RenderNode,
@@ -139,6 +139,35 @@ function relationshipValues(chart: ResolvedChart, diff: ChartDiff): Relationship
   return result;
 }
 
+function cloneLeadership(leadership: readonly LeadershipPosition[] | undefined): LeadershipPosition[] | undefined {
+  return leadership?.map((position) => ({
+    ...position,
+    ...(position.authorizedRank
+      ? {
+          authorizedRank: {
+            ...position.authorizedRank,
+            ...(position.authorizedRank.marker ? { marker: { ...position.authorizedRank.marker } } : {}),
+          },
+        }
+      : {}),
+    ...(position.occupant
+      ? {
+          occupant: {
+            ...position.occupant,
+            ...(position.occupant.rank
+              ? {
+                  rank: {
+                    ...position.occupant.rank,
+                    ...(position.occupant.rank.marker ? { marker: { ...position.occupant.rank.marker } } : {}),
+                  },
+                }
+              : {}),
+          },
+        }
+      : {}),
+  }));
+}
+
 function relationshipLineage(
   anchor: string,
   projections: ReadonlyMap<string, Projection>,
@@ -183,6 +212,7 @@ export function buildRenderView(
       ownerRows.push({
         id,
         name: node.name,
+        ...(node.leadership ? { leadership: cloneLeadership(node.leadership)! } : {}),
         depth: projection.internalDepth,
         diffKind: kindFor(id, diff),
         hasSubordinateChildren: subordinateParents.has(id),
@@ -205,6 +235,7 @@ export function buildRenderView(
     const rendered: RenderNode = {
       id,
       name: node.name,
+      ...(node.leadership ? { leadership: cloneLeadership(node.leadership)! } : {}),
       internalRows: rows.get(id)?.map((row) => ({ ...row })) ?? [],
       hiddenInternalCount: counts.internal,
       hiddenChangeCount: counts.changed,
@@ -225,6 +256,7 @@ export function buildRenderView(
       nodes.push({
         id,
         name: item.before.name,
+        ...(item.before.leadership ? { leadership: cloneLeadership(item.before.leadership)! } : {}),
         internalRows: [],
         hiddenInternalCount: 0,
         hiddenChangeCount: 0,

@@ -1,4 +1,5 @@
 import type {
+  LeadershipPosition,
   Relationship,
   ResolvedChart,
   ResolvedNode,
@@ -13,6 +14,7 @@ export type NodeChange =
   | 'name'
   | 'note'
   | 'metadata'
+  | 'leadership'
   | 'parent'
   | 'relationship'
   | 'edgeMetadata';
@@ -41,6 +43,25 @@ export interface RelationshipDiff {
   changes: readonly RelationshipChange[];
 }
 
+export type LeadershipChange =
+  | 'node'
+  | 'order'
+  | 'title'
+  | 'authorizedRank'
+  | 'occupant'
+  | 'vacant'
+  | 'anonymous';
+
+export interface LeadershipDiff {
+  id?: string;
+  kind: DiffKind;
+  beforeNodeId?: string;
+  afterNodeId?: string;
+  before?: LeadershipPosition;
+  after?: LeadershipPosition;
+  changes: readonly LeadershipChange[];
+}
+
 export interface DiffSummary {
   /** Counts node diff kinds only; relationship diffs remain in their separate map. */
   added: number;
@@ -52,6 +73,7 @@ export interface DiffSummary {
 export interface ChartDiff {
   nodes: ReadonlyMap<string, NodeDiff>;
   relationships: ReadonlyMap<string, RelationshipDiff>;
+  leadership: readonly LeadershipDiff[];
   annotations: readonly SemanticAnnotation[];
   summary: DiffSummary;
 }
@@ -63,6 +85,39 @@ function cloneSources(sources: readonly Source[] | undefined): Source[] | undefi
   return sources?.map((source) => ({ label: source.label, url: source.url }));
 }
 
+function cloneLeadershipPosition(position: LeadershipPosition): LeadershipPosition {
+  return {
+    ...position,
+    ...(position.authorizedRank
+      ? {
+          authorizedRank: {
+            ...position.authorizedRank,
+            ...(position.authorizedRank.marker ? { marker: { ...position.authorizedRank.marker } } : {}),
+          },
+        }
+      : {}),
+    ...(position.occupant
+      ? {
+          occupant: {
+            ...position.occupant,
+            ...(position.occupant.rank
+              ? {
+                  rank: {
+                    ...position.occupant.rank,
+                    ...(position.occupant.rank.marker ? { marker: { ...position.occupant.rank.marker } } : {}),
+                  },
+                }
+              : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+function cloneLeadership(leadership: readonly LeadershipPosition[] | undefined): LeadershipPosition[] | undefined {
+  return leadership?.map(cloneLeadershipPosition);
+}
+
 function cloneNode(node: ResolvedNode): ResolvedNode {
   const clone: ResolvedNode = { id: node.id, name: node.name };
   if (node.note !== undefined) clone.note = node.note;
@@ -70,6 +125,7 @@ function cloneNode(node: ResolvedNode): ResolvedNode {
   if (node.metadata !== undefined) clone.metadata = { ...node.metadata };
   if (node.aliases !== undefined) clone.aliases = [...node.aliases];
   if (node.symbol !== undefined) clone.symbol = { ...node.symbol };
+  if (node.leadership !== undefined) clone.leadership = cloneLeadership(node.leadership)!;
   return clone;
 }
 
@@ -129,6 +185,7 @@ function nodeChanges(
   if (before.name !== after.name) changes.push('name');
   if (before.note !== after.note) changes.push('note');
   if (!valuesEqual(before.metadata, after.metadata)) changes.push('metadata');
+  if (!valuesEqual(before.leadership, after.leadership)) changes.push('leadership');
   if (beforeParent?.parent !== afterParent?.parent) changes.push('parent');
   if (beforeParent?.relationship !== afterParent?.relationship) changes.push('relationship');
   if (
@@ -211,13 +268,125 @@ function diffRelationships(before: ResolvedChart, after: ResolvedChart): Map<str
   return result;
 }
 
+interface IndexedLeadership {
+  nodeId: string;
+  index: number;
+  position: LeadershipPosition;
+}
+
+function indexedLeadership(chart: ResolvedChart): {
+  identified: Map<string, IndexedLeadership>;
+  anonymousByNode: Map<string, LeadershipPosition[]>;
+} {
+  const identified = new Map<string, IndexedLeadership>();
+  const anonymousByNode = new Map<string, LeadershipPosition[]>();
+  for (const [nodeId, node] of chart.nodes) {
+    node.leadership?.forEach((position, index) => {
+      if (position.id) {
+        identified.set(position.id, { nodeId, index, position });
+      } else {
+        const anonymous = anonymousByNode.get(nodeId) ?? [];
+        anonymous.push(position);
+        anonymousByNode.set(nodeId, anonymous);
+      }
+    });
+  }
+  return { identified, anonymousByNode };
+}
+
+function leadershipChanges(before: IndexedLeadership, after: IndexedLeadership): LeadershipChange[] {
+  const changes: LeadershipChange[] = [];
+  if (before.nodeId !== after.nodeId) changes.push('node');
+  if (before.index !== after.index && before.nodeId === after.nodeId) changes.push('order');
+  if (before.position.title !== after.position.title) changes.push('title');
+  if (!valuesEqual(before.position.authorizedRank, after.position.authorizedRank)) changes.push('authorizedRank');
+  if (!valuesEqual(before.position.occupant, after.position.occupant)) changes.push('occupant');
+  if (before.position.vacant !== after.position.vacant) changes.push('vacant');
+  return changes;
+}
+
+function diffLeadership(before: ResolvedChart, after: ResolvedChart): LeadershipDiff[] {
+  const beforeIndex = indexedLeadership(before);
+  const afterIndex = indexedLeadership(after);
+  const result: LeadershipDiff[] = [];
+  for (const [id, beforePosition] of beforeIndex.identified) {
+    const afterPosition = afterIndex.identified.get(id);
+    if (!afterPosition) {
+      result.push({
+        id,
+        kind: 'removed',
+        beforeNodeId: beforePosition.nodeId,
+        before: cloneLeadershipPosition(beforePosition.position),
+        changes: [],
+      });
+      continue;
+    }
+    const changes = leadershipChanges(beforePosition, afterPosition);
+    if (changes.length === 0) continue;
+    result.push({
+      id,
+      kind: 'modified',
+      beforeNodeId: beforePosition.nodeId,
+      afterNodeId: afterPosition.nodeId,
+      before: cloneLeadershipPosition(beforePosition.position),
+      after: cloneLeadershipPosition(afterPosition.position),
+      changes,
+    });
+  }
+  for (const [id, afterPosition] of afterIndex.identified) {
+    if (beforeIndex.identified.has(id)) continue;
+    result.push({
+      id,
+      kind: 'added',
+      afterNodeId: afterPosition.nodeId,
+      after: cloneLeadershipPosition(afterPosition.position),
+      changes: [],
+    });
+  }
+  for (const [nodeId, beforeAnonymous] of beforeIndex.anonymousByNode) {
+    const afterAnonymous = afterIndex.anonymousByNode.get(nodeId) ?? [];
+    if (valuesEqual(beforeAnonymous, afterAnonymous)) continue;
+    const diff: LeadershipDiff = {
+      kind: 'modified',
+      beforeNodeId: nodeId,
+      changes: ['anonymous'],
+    };
+    if (after.nodes.has(nodeId)) diff.afterNodeId = nodeId;
+    if (beforeAnonymous[0]) diff.before = cloneLeadershipPosition(beforeAnonymous[0]);
+    if (afterAnonymous[0]) diff.after = cloneLeadershipPosition(afterAnonymous[0]);
+    result.push(diff);
+  }
+  for (const [nodeId, afterAnonymous] of afterIndex.anonymousByNode) {
+    if (beforeIndex.anonymousByNode.has(nodeId)) continue;
+    const diff: LeadershipDiff = {
+      kind: 'modified',
+      afterNodeId: nodeId,
+      changes: ['anonymous'],
+    };
+    if (before.nodes.has(nodeId)) diff.beforeNodeId = nodeId;
+    if (afterAnonymous[0]) diff.after = cloneLeadershipPosition(afterAnonymous[0]);
+    result.push(diff);
+  }
+  return result;
+}
+
 export function diffCharts(before: ResolvedChart, after: ResolvedChart): ChartDiff {
   const nodes = diffNodes(before, after);
+  const leadership = diffLeadership(before, after);
+  for (const item of leadership) {
+    for (const nodeId of [item.beforeNodeId, item.afterNodeId]) {
+      const node = nodeId ? nodes.get(nodeId) : undefined;
+      if (!node || node.kind === 'added' || node.kind === 'removed' || node.changes.includes('leadership')) continue;
+      node.changes = [...node.changes, 'leadership'];
+      node.kind = 'modified';
+    }
+  }
   const summary: DiffSummary = { added: 0, removed: 0, modified: 0, unchanged: 0 };
   for (const item of nodes.values()) summary[item.kind] += 1;
   return {
     nodes,
     relationships: diffRelationships(before, after),
+    leadership,
     annotations: after.semanticAnnotations.map(cloneAnnotation),
     summary,
   };

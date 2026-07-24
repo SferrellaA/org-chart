@@ -68,6 +68,36 @@ Hierarchy edges connect child nodes to parent nodes and declare whether the chil
 
 `internal` edges flatten into internal rows under the nearest outer organization unless the reader chooses to show internal units or reveals one through search. `subordinate` edges create visible tree nodes.
 
+## Leadership
+
+Nodes can carry ordered leadership billets in definitions, snapshots, or `set-node` patches. The chart renders every supplied billet on subordinate cards and internal organizations:
+
+```json
+"wing": {
+  "name": "Example Wing",
+  "leadership": [
+    {
+      "id": "wing-cc",
+      "title": "Commander",
+      "authorizedRank": {
+        "label": "Colonel",
+        "marker": { "type": "bundled", "id": "usaf-o6" }
+      },
+      "occupant": {
+        "name": "Morgan Example",
+        "rank": { "label": "Lieutenant Colonel", "marker": { "type": "bundled", "id": "usaf-o5" } },
+        "acting": true
+      },
+      "vacant": true
+    }
+  ]
+}
+```
+
+`title`, `authorizedRank`, `occupant`, and `vacant` are all optional individually, but a billet must include at least one renderable value. `occupant` is display-only text; billet identity comes from the optional document-wide `id`. Identified billets can move between organizations in proposals and still produce connected leadership diffs. Anonymous billets remain valid but are shown as unrelated before/after records when changed.
+
+Rank markers support bundled IDs, HTTPS images, text, or emoji. See `docs/marker-catalog.md` for bundled marker IDs.
+
 ## Snapshots And Proposals
 
 Snapshots describe complete states. Snapshot node entries can override node definition fields for that state, and hierarchy edges describe the full tree for the snapshot:
@@ -167,7 +197,7 @@ The rendered chart includes a keyboard-navigable tree separate from the visual d
 
 ## Deferred Fields
 
-The schema accepts symbols and meta-zones so publishers can preserve richer editorial data before every rendering feature exists. For example, the State Department fixture includes a text symbol:
+The schema accepts symbols and meta-zones so publishers can preserve richer editorial data before every rendering feature exists. Leadership rank markers render now; node-level `symbol` remains reserved. For example, the State Department fixture includes a text symbol:
 
 ```json
 "symbol": { "type": "text", "text": "PL" }

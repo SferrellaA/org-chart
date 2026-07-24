@@ -48,7 +48,7 @@ function diff(
   );
   const summary = { added: 0, removed: 0, modified: 0, unchanged: 0 };
   for (const value of nodes.values()) summary[value.kind] += 1;
-  return { nodes, relationships, annotations: [], summary };
+  return { nodes, relationships, leadership: [], annotations: [], summary };
 }
 
 const options = {
@@ -91,6 +91,42 @@ describe('buildRenderView', () => {
       id: 'agency',
       parentId: 'root',
       connectorSourceId: 'office',
+    });
+  });
+
+  it('projects leadership onto outer cards, internal rows, and removed ghost nodes', () => {
+    const root = node('root', 'Root');
+    root.leadership = [{ id: 'root-cc', title: 'Commander', authorizedRank: { label: 'O-6' } }];
+    const office = node('office', 'Office');
+    office.leadership = [{ title: 'Director', occupant: { name: 'Taylor Example' } }];
+    const removed = node('removed', 'Removed');
+    removed.leadership = [{ title: 'Former Commander', vacant: true }];
+    const value = chart(
+      ['root', 'office'],
+      [['office', { parent: 'root', relationship: 'internal' }]],
+      { nodes: new Map([['root', root], ['office', office]]) },
+    );
+
+    const result = buildRenderView(
+      value,
+      diff([
+        ['removed', { kind: 'removed', before: removed }],
+      ]),
+      options,
+    );
+
+    expect(result.nodes[0]).toMatchObject({
+      id: 'root',
+      leadership: [{ id: 'root-cc', title: 'Commander' }],
+      internalRows: [expect.objectContaining({
+        id: 'office',
+        leadership: [{ title: 'Director', occupant: { name: 'Taylor Example' } }],
+      })],
+    });
+    expect(result.nodes[1]).toMatchObject({
+      id: 'removed',
+      leadership: [{ title: 'Former Commander', vacant: true }],
+      ghost: true,
     });
   });
 
@@ -461,5 +497,49 @@ describe('presentation details', () => {
     expect(patchGroupDetails(group)).toEqual({
       title: 'Reform', kindLabel: 'Patch group', note: 'Group note', sources: sources.slice(0, 2),
     });
+  });
+
+  it('includes leadership text in node and change details', () => {
+    const before = node('wing', 'Wing');
+    before.leadership = [
+      { id: 'wing-do', title: 'Director of Operations', authorizedRank: { label: 'O-4' } },
+    ];
+    const after = node('oss', 'Operational Support Squadron');
+    after.leadership = [
+      {
+        id: 'wing-do',
+        title: 'Commander',
+        authorizedRank: { label: 'O-5' },
+        occupant: { name: 'Morgan Example', rank: { label: 'O-4' }, acting: true },
+        vacant: true,
+      },
+    ];
+
+    expect(nodeDetails(after).leadership).toEqual([
+      'O-5 Commander; Acting O-4 Morgan Example; Vacant',
+    ]);
+    expect(changeDetails({
+      id: 'wing-do',
+      kind: 'modified',
+      beforeNodeId: 'wing',
+      afterNodeId: 'oss',
+      before: before.leadership[0]!,
+      after: after.leadership[0]!,
+      changes: ['node', 'title', 'authorizedRank', 'occupant', 'vacant'],
+    }).leadership).toEqual([
+      'Before: O-4 Director of Operations',
+      'After: O-5 Commander; Acting O-4 Morgan Example; Vacant',
+    ]);
+
+    expect(changeDetails({
+      id: 'oss',
+      kind: 'modified',
+      before,
+      after,
+      changes: ['leadership'],
+    }).leadership).toEqual([
+      'Before: O-4 Director of Operations',
+      'After: O-5 Commander; Acting O-4 Morgan Example; Vacant',
+    ]);
   });
 });

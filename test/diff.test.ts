@@ -201,6 +201,49 @@ describe('diffCharts', () => {
     });
   });
 
+  it('tracks identified leadership moves, retitles, rank changes, and anonymous replacements', () => {
+    const before = chart([
+      node('wing', {
+        leadership: [
+          { id: 'wing-cc', title: 'Commander', authorizedRank: { label: 'O-6' } },
+          { id: 'wing-cv', title: 'Vice Commander', authorizedRank: { label: 'O-6' } },
+          { id: 'wing-do', title: 'Director of Operations', authorizedRank: { label: 'O-4' } },
+          { title: 'Unidentified Advisor', occupant: { name: 'Old Name' } },
+        ],
+      }),
+      node('css'),
+    ]);
+    const after = chart([
+      node('wing', {
+        leadership: [
+          { id: 'wing-cc', title: 'Commander', authorizedRank: { label: 'O-6' } },
+          { title: 'Unidentified Advisor', occupant: { name: 'New Name' } },
+        ],
+      }),
+      node('oss', {
+        leadership: [
+          { id: 'wing-do', title: 'Commander', authorizedRank: { label: 'O-5' } },
+        ],
+      }),
+      node('wsa', {
+        leadership: [
+          { id: 'wing-cv', title: 'Deputy Wing Commander', authorizedRank: { label: 'O-6' } },
+        ],
+      }),
+    ]);
+
+    const result = diffCharts(before, after);
+
+    expect(result.nodes.get('wing')).toMatchObject({ kind: 'modified', changes: ['leadership'] });
+    expect(result.nodes.get('oss')).toMatchObject({ kind: 'added' });
+    expect(result.nodes.get('wsa')).toMatchObject({ kind: 'added' });
+    expect(result.leadership).toEqual([
+      expect.objectContaining({ id: 'wing-cv', kind: 'modified', beforeNodeId: 'wing', afterNodeId: 'wsa', changes: ['node', 'title'] }),
+      expect.objectContaining({ id: 'wing-do', kind: 'modified', beforeNodeId: 'wing', afterNodeId: 'oss', changes: ['node', 'title', 'authorizedRank'] }),
+      expect.objectContaining({ kind: 'modified', beforeNodeId: 'wing', afterNodeId: 'wing', changes: ['anonymous'] }),
+    ]);
+  });
+
   it('carries after annotations in order and deeply isolates all nested output', () => {
     const beforeNode = node('removed', {
       aliases: ['alias'],

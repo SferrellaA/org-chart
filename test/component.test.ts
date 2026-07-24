@@ -775,6 +775,63 @@ describe('OrgDeltaChartElement', () => {
     expect((element.shadowRoot!.activeElement as HTMLElement).dataset.key).toBe('proposal-a');
   });
 
+  it('renders the Wing CSS to OSS leadership scenario in cards and details', async () => {
+    const documentData = cloneValidDocument();
+    documentData.nodes = {
+      wing: {
+        name: 'Example Wing',
+        leadership: [
+          { id: 'wing-cc', title: 'Commander', authorizedRank: { label: 'O-6' } },
+          { id: 'wing-cv', title: 'Vice Commander', authorizedRank: { label: 'O-6' } },
+          { id: 'wing-do', title: 'Director of Operations', authorizedRank: { label: 'O-4' } },
+        ] as never,
+      },
+      css: { name: 'Commander Support Section' },
+      wsa: { name: 'Wing Staff Agency' },
+    };
+    documentData.snapshots = [{
+      id: 'current',
+      label: 'Current wing',
+      nodes: { wing: {}, css: {} },
+      hierarchy: [{ child: 'css', parent: 'wing', relationship: 'internal' }],
+    }];
+    documentData.proposals = [{
+      id: 'proposal-a',
+      label: 'Leadership delta',
+      base: 'current',
+      patches: [
+        { type: 'set-node', node: 'wing', value: { leadership: [{ id: 'wing-cc', title: 'Commander', authorizedRank: { label: 'O-6' } }] } as never },
+        { type: 'set-node', node: 'css', value: { name: 'Operational Support Squadron', leadership: [{ id: 'wing-do', title: 'Commander', authorizedRank: { label: 'O-5' } }] } as never },
+        { type: 'set-parent', node: 'css', parent: 'wing', relationship: 'subordinate' },
+        { type: 'add-node', node: 'wsa', value: { leadership: [{ id: 'wing-cv', title: 'Deputy Wing Commander', authorizedRank: { label: 'O-6' } }] } as never },
+        { type: 'set-parent', node: 'wsa', parent: 'wing', relationship: 'internal' },
+      ],
+    }];
+    documentData.relationships = [];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    element.setAttribute('initial-view', 'proposal-a');
+    document.body.append(element);
+    await settle();
+
+    const rendered = renderers[0]!.views[0]!;
+    expect(rendered.nodes.find((item) => item.id === 'wing')?.leadership).toMatchObject([
+      { id: 'wing-cc', title: 'Commander' },
+    ]);
+    expect(rendered.nodes.find((item) => item.id === 'css')?.leadership).toMatchObject([
+      { id: 'wing-do', title: 'Commander', authorizedRank: { label: 'O-5' } },
+    ]);
+    expect(rendered.nodes.find((item) => item.id === 'wing')?.internalRows).toEqual([
+      expect.objectContaining({ id: 'wsa', leadership: [{ id: 'wing-cv', title: 'Deputy Wing Commander', authorizedRank: { label: 'O-6' } }] }),
+    ]);
+    const trigger = document.createElement('button');
+    element.shadowRoot!.querySelector('.canvas')!.append(trigger);
+    renderers[0]!.callbacks.onActivate('node', 'css', trigger);
+    expect(element.shadowRoot!.querySelector('aside')!.textContent)
+      .toContain('O-5 Commander');
+  });
+
   it('uses remembered parent selections for immediate and explicit nested baselines', async () => {
     const documentData = cloneValidDocument();
     documentData.proposals.push({
@@ -996,5 +1053,20 @@ describe('OrgDeltaChartElement', () => {
     }, trigger);
 
     expect(container.querySelector('a')).toBeNull();
+  });
+
+  it('renders leadership rows in the details panel', () => {
+    const container = document.createElement('aside');
+    const trigger = document.createElement('button');
+
+    renderDetailsPanel(container, {
+      title: 'Operational Support Squadron',
+      kindLabel: 'Node',
+      sources: [],
+      leadership: ['O-5 Commander; Acting O-4 Morgan Example; Vacant'],
+    }, trigger, undefined, false);
+
+    expect(container.textContent).toContain('Leadership');
+    expect(container.textContent).toContain('O-5 Commander; Acting O-4 Morgan Example; Vacant');
   });
 });

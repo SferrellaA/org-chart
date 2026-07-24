@@ -388,6 +388,52 @@ describe('D3OrgChartRenderer', () => {
     expect(container.textContent).toContain('<script>alert(1)</script>');
   });
 
+  it('renders leadership rows with bundled, image, text, and emoji markers', () => {
+    const host = document.createElement('div');
+    const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });
+    const root = node({
+      leadership: [
+        {
+          id: 'root-cc',
+          title: 'Commander',
+          authorizedRank: { label: 'Colonel', marker: { type: 'bundled', id: 'usaf-o6' } },
+          occupant: {
+            name: 'Morgan Example',
+            rank: { label: 'Major', marker: { type: 'image', url: 'https://example.test/major.svg', alt: 'Major insignia' } },
+            acting: true,
+          },
+          vacant: true,
+        },
+        { title: 'Advisor', authorizedRank: { marker: { type: 'text', text: 'GS-15' } } },
+        { authorizedRank: { marker: { type: 'emoji', emoji: '★', label: 'star' } } },
+      ],
+      internalRows: [{
+        id: 'inside',
+        name: 'Inside',
+        depth: 1,
+        diffKind: 'unchanged',
+        hasSubordinateChildren: false,
+        leadership: [{ title: 'Section Lead', vacant: true }],
+      }],
+    });
+    renderer.render(view([root]));
+    const chart = mocked.FakeOrgChart.instances[0]!;
+
+    const container = document.createElement('div');
+    container.innerHTML = chart.content?.({ data: root }) ?? '';
+
+    expect(container.querySelectorAll('.org-delta-leadership')).toHaveLength(4);
+    expect(container.querySelector('[data-marker-id="usaf-o6"]')).not.toBeNull();
+    expect(container.querySelector('img.org-delta-rank-marker')?.getAttribute('src'))
+      .toBe('https://example.test/major.svg');
+    expect(container.textContent).toContain('GS-15');
+    expect(container.textContent).toContain('★');
+    expect(container.querySelector('.org-delta-leadership')?.getAttribute('aria-label'))
+      .toBe('Colonel Commander; Acting Major Morgan Example; Vacant');
+    expect(container.textContent).toContain('Vacant');
+    expect(container.textContent).toContain('Section Lead');
+  });
+
   it('renders a separate grouped semantic tree without assigning tree roles to visual nodes', () => {
     const host = document.createElement('div');
     const renderer = new D3OrgChartRenderer(host, { onActivate: vi.fn() });

@@ -1,10 +1,14 @@
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 
 import schema from '../../public/org-delta-chart.schema.json';
+import { bundledMarkerIds } from '../markers/catalog';
+import { resolveView } from './resolve';
 import type {
+  LeadershipPosition,
   OrgDocument,
   Patch,
   Proposal,
+  RankMarker,
   Relationship,
   SnapshotState,
   ValidationResult,
@@ -96,6 +100,69 @@ function relationshipNodeErrors(
     errors.push(`${owner}/target: unknown node "${relationship.target}"`);
   }
   return errors;
+}
+
+function markerErrors(path: string, marker: RankMarker | undefined): string[] {
+  if (!marker || marker.type !== 'bundled') return [];
+  return bundledMarkerIds.has(marker.id)
+    ? []
+    : [`${path}/id: unknown bundled marker "${marker.id}"`];
+}
+
+function leadershipErrors(owner: string, leadership: readonly LeadershipPosition[] | undefined): string[] {
+  const errors: string[] = [];
+  leadership?.forEach((position, index) => {
+    const path = `${owner}/leadership/${index}`;
+    if (!position.title && !position.authorizedRank && !position.occupant && position.vacant !== true) {
+      errors.push(`${path}: leadership billet must include title, rank, occupant, or vacancy`);
+    }
+    errors.push(...markerErrors(`${path}/authorizedRank/marker`, position.authorizedRank?.marker));
+    errors.push(...markerErrors(`${path}/occupant/rank/marker`, position.occupant?.rank?.marker));
+  });
+  return errors;
+}
+
+function resolvedLeadershipErrors(document: OrgDocument, viewId: string, owner: string): string[] {
+  try {
+    const chart = resolveView(document, { viewId, selectedGroups: [] });
+    const owners = new Map<string, string>();
+    for (const [nodeId, node] of chart.nodes) {
+      for (const position of node.leadership ?? []) {
+        if (!position.id) continue;
+        const previous = owners.get(position.id);
+        if (previous) {
+          return [
+            `${owner}/resolved/leadership: duplicate billet ID "${position.id}" on nodes "${previous}" and "${nodeId}"`,
+          ];
+        }
+        owners.set(position.id, nodeId);
+      }
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('duplicate billet ID')) {
+      return [`${owner}/resolved/leadership: ${error.message.replace(/^.*: /, '')}`];
+    }
+    // Existing validation paths cover malformed views; duplicate billet checks are additive.
+  }
+  return [];
+}
+
+function hasLeadershipData(document: OrgDocument): boolean {
+  if (Object.values(document.nodes).some((node) => node.leadership !== undefined)) return true;
+  if (document.snapshots.some((snapshot) =>
+    Object.values(snapshot.nodes).some((node) => node.leadership !== undefined)
+  )) return true;
+  return document.proposals.some((proposal) => {
+    if (proposal.snapshot && Object.values(proposal.snapshot.nodes).some((node) => node.leadership !== undefined)) {
+      return true;
+    }
+    if (proposal.patches?.some((patch) =>
+      (patch.type === 'set-node' || patch.type === 'add-node') && patch.value?.leadership !== undefined
+    )) return true;
+    return proposal.patchGroups?.some((group) => group.patches.some((patch) =>
+      (patch.type === 'set-node' || patch.type === 'add-node') && patch.value?.leadership !== undefined
+    )) ?? false;
+  });
 }
 
 function patchErrors(
@@ -328,6 +395,7 @@ export function validateDocument(input: unknown): ValidationResult {
   }
 
   const document = input as OrgDocument;
+  const hasLeadership = hasLeadershipData(document);
   const fatalErrors: string[] = [];
   const knownNodes = new Set(Object.keys(document.nodes));
   const idOwners = new Map<string, IdOwner>();
@@ -367,7 +435,13 @@ export function validateDocument(input: unknown): ValidationResult {
 
   for (const snapshot of document.snapshots) {
     fatalErrors.push(...hierarchyErrors(`snapshot/${snapshot.id}`, snapshot, knownNodes));
+    Object.entries(snapshot.nodes).forEach(([id, state]) => {
+      fatalErrors.push(...leadershipErrors(`snapshot/${snapshot.id}/nodes/${escapeJsonPointer(id)}`, state.leadership));
+    });
   }
+  Object.entries(document.nodes).forEach(([id, node]) => {
+    fatalErrors.push(...leadershipErrors(`nodes/${escapeJsonPointer(id)}`, node.leadership));
+  });
   document.relationships?.forEach((relationship, index) => {
     fatalErrors.push(...relationshipNodeErrors(`relationships/${index}`, relationship, knownNodes));
   });
@@ -382,6 +456,23 @@ export function validateDocument(input: unknown): ValidationResult {
     if (!knownNodes.has(node)) {
       fatalErrors.push(`presentation/focusNodes/${index}: unknown node "${node}"`);
     }
+  });
+  document.proposals.forEach((proposal) => {
+    proposal.snapshot && Object.entries(proposal.snapshot.nodes).forEach(([id, state]) => {
+      fatalErrors.push(...leadershipErrors(`proposal/${escapeJsonPointer(proposal.id)}/snapshot/nodes/${escapeJsonPointer(id)}`, state.leadership));
+    });
+    proposal.patches?.forEach((patch, index) => {
+      if (patch.type === 'set-node' || patch.type === 'add-node') {
+        fatalErrors.push(...leadershipErrors(`proposal/${escapeJsonPointer(proposal.id)}/patches/${index}/value`, patch.value?.leadership));
+      }
+    });
+    proposal.patchGroups?.forEach((group, groupIndex) => {
+      group.patches.forEach((patch, patchIndex) => {
+        if (patch.type === 'set-node' || patch.type === 'add-node') {
+          fatalErrors.push(...leadershipErrors(`proposal/${escapeJsonPointer(proposal.id)}/patchGroups/${groupIndex}/patches/${patchIndex}/value`, patch.value?.leadership));
+        }
+      });
+    });
   });
   if (fatalErrors.length > 0) return { ok: false, errors: fatalErrors };
 
@@ -480,6 +571,14 @@ export function validateDocument(input: unknown): ValidationResult {
       if (result.errors.length > 0) {
         mutableViewErrors.set(proposal.id, result.errors);
       } else {
+        if (hasLeadership) {
+          const leadershipResult = resolvedLeadershipErrors(
+            document,
+            proposal.id,
+            `proposal/${escapeJsonPointer(proposal.id)}`,
+          );
+          if (leadershipResult.length > 0) mutableViewErrors.set(proposal.id, leadershipResult);
+        }
         relationshipStates.set(proposal.id, result.relationships);
       }
     }

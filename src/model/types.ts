@@ -3,11 +3,55 @@ export interface Source {
   url: string;
 }
 
+export interface BundledRankMarker {
+  type: 'bundled';
+  id: string;
+}
+
+export interface ImageRankMarker {
+  type: 'image';
+  url: string;
+  alt: string;
+}
+
+export interface TextRankMarker {
+  type: 'text';
+  text: string;
+}
+
+export interface EmojiRankMarker {
+  type: 'emoji';
+  emoji: string;
+  label: string;
+}
+
+export type RankMarker = BundledRankMarker | ImageRankMarker | TextRankMarker | EmojiRankMarker;
+
+export interface RankDisplay {
+  label?: string;
+  marker?: RankMarker;
+}
+
+export interface LeadershipOccupant {
+  name: string;
+  rank?: RankDisplay;
+  acting?: boolean;
+}
+
+export interface LeadershipPosition {
+  id?: string;
+  title?: string;
+  authorizedRank?: RankDisplay;
+  occupant?: LeadershipOccupant;
+  vacant?: boolean;
+}
+
 export interface NodeState {
   name?: string;
   note?: string;
   sources?: readonly Source[];
   metadata?: Readonly<Record<string, string | number | boolean | null>>;
+  leadership?: readonly LeadershipPosition[];
 }
 
 export interface ImageSymbol {

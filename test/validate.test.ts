@@ -139,6 +139,100 @@ describe('validateDocument', () => {
     if (result.ok) expect(result.viewErrors.size).toBe(0);
   });
 
+  it('accepts leadership billets with authorized and occupant rank markers', () => {
+    const document = cloneValidDocument() as unknown as Record<string, unknown>;
+    const typed = document as DeepMutable<OrgDocument>;
+    typed.nodes.state = {
+      ...typed.nodes.state!,
+      leadership: [
+        {
+          id: 'wing-commander',
+          title: 'Commander',
+          authorizedRank: { label: 'Colonel', marker: { type: 'bundled', id: 'usaf-o6' } },
+          occupant: {
+            name: 'Alex Example',
+            rank: { label: 'Lieutenant Colonel', marker: { type: 'bundled', id: 'usaf-o5' } },
+            acting: true,
+          },
+          vacant: true,
+        } as never,
+        {
+          title: 'Civilian Director',
+          authorizedRank: {
+            marker: { type: 'image', url: 'https://example.com/ses.svg', alt: 'SES' },
+          },
+        } as never,
+        { authorizedRank: { marker: { type: 'text', text: 'GS-15' } } } as never,
+        { authorizedRank: { marker: { type: 'emoji', emoji: '★', label: 'star' } } } as never,
+      ],
+    };
+
+    const result = validateDocument(document);
+
+    expect(result).toEqual({ ok: true, value: document, viewErrors: new Map() });
+  });
+
+  it('rejects empty leadership billets and unsafe marker values', () => {
+    const empty = cloneValidDocument() as unknown as Record<string, unknown>;
+    (empty as DeepMutable<OrgDocument>).nodes.state = {
+      ...(empty as DeepMutable<OrgDocument>).nodes.state!,
+      leadership: [{} as never],
+    };
+    expect(validateDocument(empty).ok).toBe(false);
+
+    const unsafeImage = cloneValidDocument() as unknown as Record<string, unknown>;
+    (unsafeImage as DeepMutable<OrgDocument>).nodes.state = {
+      ...(unsafeImage as DeepMutable<OrgDocument>).nodes.state!,
+      leadership: [
+        {
+          authorizedRank: {
+            marker: { type: 'image', url: 'javascript:alert(1)', alt: 'bad' },
+          },
+        } as never,
+      ],
+    };
+    expect(validateDocument(unsafeImage).ok).toBe(false);
+  });
+
+  it('rejects unknown bundled marker IDs and duplicate resolved billet IDs', () => {
+    const unknownMarker = cloneValidDocument() as unknown as Record<string, unknown>;
+    (unknownMarker as DeepMutable<OrgDocument>).nodes.state = {
+      ...(unknownMarker as DeepMutable<OrgDocument>).nodes.state!,
+      leadership: [
+        { authorizedRank: { marker: { type: 'bundled', id: 'missing-rank' } } } as never,
+      ],
+    };
+    expect(validateDocument(unknownMarker)).toEqual({
+      ok: false,
+      errors: ['nodes/state/leadership/0/authorizedRank/marker/id: unknown bundled marker "missing-rank"'],
+    });
+
+    const duplicate = cloneValidDocument() as unknown as Record<string, unknown>;
+    const document = duplicate as DeepMutable<OrgDocument>;
+    document.proposals[0]!.patches = [
+      {
+        type: 'set-node',
+        node: 'usaid',
+        value: { leadership: [{ id: 'shared-billet', title: 'Commander' }] } as never,
+      },
+      {
+        type: 'set-node',
+        node: 'state',
+        value: { leadership: [{ id: 'shared-billet', title: 'Director' }] } as never,
+      },
+    ];
+    delete document.proposals[0]!.patchGroups;
+
+    const result = validateDocument(duplicate);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.viewErrors.get('proposal-a')).toContain(
+        'proposal/proposal-a/resolved/leadership: duplicate billet ID "shared-billet" on nodes "state" and "usaid"',
+      );
+    }
+  });
+
   it('tracks added relationships for later set and remove patches', () => {
     const document = cloneValidDocument();
     delete document.proposals[0]!.patchGroups;

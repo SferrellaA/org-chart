@@ -60,6 +60,17 @@ export function renderDetailsPanel(
     note.textContent = item.note;
     container.append(note);
   }
+  if (item.leadership && item.leadership.length > 0) {
+    const heading = document.createElement('h3');
+    heading.textContent = 'Leadership';
+    const list = document.createElement('ul');
+    for (const entry of item.leadership) {
+      const row = document.createElement('li');
+      row.textContent = entry;
+      list.append(row);
+    }
+    container.append(heading, list);
+  }
   const sources = item.sources.flatMap((source) => {
     const url = safeHttpUrl(source.url);
     return url ? [{ ...source, url }] : [];

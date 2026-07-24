@@ -1,4 +1,5 @@
 import type { DiffKind } from '../model/diff';
+import type { LeadershipPosition } from '../model/types';
 
 export function encodeHierarchyActivationId(parentId: string, childId: string): string {
   return JSON.stringify([parentId, childId]);
@@ -21,6 +22,7 @@ export function decodeHierarchyActivationId(value: string): readonly [string, st
 export interface InternalRow {
   id: string;
   name: string;
+  leadership?: readonly LeadershipPosition[];
   depth: number;
   diffKind: DiffKind;
   hasSubordinateChildren: boolean;
@@ -31,6 +33,7 @@ export interface RenderNode {
   parentId?: string;
   connectorSourceId?: string;
   name: string;
+  leadership?: readonly LeadershipPosition[];
   internalRows: readonly InternalRow[];
   hiddenInternalCount: number;
   hiddenChangeCount: number;

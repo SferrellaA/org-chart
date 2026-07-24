@@ -35,6 +35,13 @@ export const componentStyles = `
   .org-delta-tree-navigation [role='treeitem'] { display: block; min-height: 44px; padding: 10px 12px; border: 1px solid currentColor; background: Canvas; color: CanvasText; }
   .org-delta-minimap { color: #334155; border: 1px solid currentColor; background: rgba(255,255,255,.9); }
   .org-delta-node { border: 2px solid #64748b; border-radius: 8px; background: #fff; }
+  .org-delta-leadership { display: grid; gap: 2px; margin: 6px 8px; padding: 6px; border-radius: 6px; background: rgba(15,23,42,.04); }
+  .org-delta-leadership-primary, .org-delta-leadership-occupant { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .org-delta-leadership-title, .org-delta-leadership-occupant span:last-child { overflow-wrap: anywhere; }
+  .org-delta-rank-marker { display: inline-grid; place-items: center; flex: 0 0 24px; width: 24px; height: 24px; object-fit: contain; border: 1px solid currentColor; border-radius: 4px; color: #334155; font-size: .78rem; line-height: 1; }
+  .org-delta-rank-marker svg { width: 100%; height: 100%; }
+  .org-delta-rank-label { font-weight: 700; white-space: nowrap; }
+  .org-delta-leadership-badge { display: inline-block; padding: 1px 5px; border: 1px solid currentColor; border-radius: 999px; font-size: .78rem; font-weight: 700; }
   .org-delta-node--added, .org-delta-internal--added { border-left: 8px solid #18794e; background-image: repeating-linear-gradient(135deg, transparent 0 7px, rgba(24,121,78,.12) 7px 10px); }
   .org-delta-node--removed, .org-delta-internal--removed { border-left: 8px double #b42318; text-decoration: line-through; }
   .org-delta-node--modified, .org-delta-internal--modified { border-left: 8px dashed #9a6700; background-image: repeating-linear-gradient(45deg, transparent 0 9px, rgba(154,103,0,.1) 9px 12px); }
