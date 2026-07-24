@@ -15,7 +15,7 @@ import type {
   TaxonomyPatch,
   TaxonomyState,
 } from './types';
-import { applyTaxonomyTransaction, cloneTaxonomy, isTaxonomyPatch, resolveTaxonomyAssignments, type TaxonomyPatchEntry } from './taxonomy';
+import { applyTaxonomyTransaction, cloneTaxonomy, isTaxonomyPatch, resolveTaxonomyAssignments, TaxonomyError, type TaxonomyPatchEntry } from './taxonomy';
 import {
   concretePatchWrites,
   concreteValueFingerprint,
@@ -579,14 +579,35 @@ function applyProposal(
     applySelectedPatchGroup(document, state, group.patches, groupPath, context);
   }
   const taxonomyEntries: TaxonomyPatchEntry[] = [];
+  const nodeAssignmentWrites = new Map<string, { assignments: Readonly<Record<string, string>>; path: string }>();
   const collect = (patches: readonly Patch[], path: string): void => {
     patches.forEach((patch, index) => {
-      if (isTaxonomyPatch(patch)) taxonomyEntries.push({ patch: patch as TaxonomyPatch, path: `${path}/${index}` });
+      const patchPath = `${path}/${index}`;
+      if (isTaxonomyPatch(patch)) taxonomyEntries.push({ patch: patch as TaxonomyPatch, path: patchPath });
+      if ((patch.type === 'set-node' || patch.type === 'add-node') && patch.value?.taxonomyAssignments) {
+        nodeAssignmentWrites.set(patch.node, { assignments: patch.value.taxonomyAssignments, path: patchPath });
+      }
     });
   };
   collect(proposal.patches ?? [], `${proposalPath}/patches`);
   for (const [groupIndex, group] of (proposal.patchGroups ?? []).entries()) {
     if (selected.has(group.id)) collect(group.patches, `${proposalPath}/patchGroups/${groupIndex}/patches`);
+  }
+  for (const entry of taxonomyEntries) {
+    const patch = entry.patch;
+    if (patch.type === 'set-taxonomy-assignment' || patch.type === 'remove-taxonomy-assignment') {
+      const wholeRecord = nodeAssignmentWrites.get(patch.node);
+      if (wholeRecord) {
+        const granularValue = patch.type === 'set-taxonomy-assignment' ? patch.level : undefined;
+        if (wholeRecord.assignments[patch.taxonomy] !== granularValue) {
+          throw new TaxonomyError(
+            entry.path,
+            `conflicting taxonomy assignment writes for ${patch.node}/${patch.taxonomy} (whole record written at ${wholeRecord.path})`,
+          );
+        }
+      }
+    }
+    addAnnotation(state.semanticAnnotations, patch, undefined);
   }
   state.taxonomy = applyTaxonomyTransaction(state.taxonomy, state.nodes, taxonomyEntries, proposalPath);
   state.parents = new Map(

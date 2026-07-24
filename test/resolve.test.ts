@@ -66,6 +66,38 @@ describe('resolveView', () => {
         .toThrow(/conflicting taxonomy.*usaf-echelon.*wing/i);
     }
   });
+
+  it('rejects granular assignments that disagree with set-node assignment records', () => {
+    const document = taxonomyDocument();
+    document.proposals[0]!.patches = [
+      { type: 'set-node', node: 'wing-a', value: { taxonomyAssignments: { 'usaf-echelon': 'wing' } } },
+      { type: 'set-taxonomy-assignment', node: 'wing-a', taxonomy: 'usaf-echelon', level: 'air-division' },
+    ];
+
+    expect(() => resolveView(document, { viewId: 'remove-air-divisions', selectedGroups: [] }))
+      .toThrow(/conflicting taxonomy assignment writes/i);
+  });
+
+  it('retains semantic annotations from taxonomy patches', () => {
+    const document = taxonomyDocument();
+    document.proposals[0]!.patches = [{
+      type: 'set-taxonomy-level',
+      taxonomy: 'usaf-echelon',
+      level: 'numbered-air-force',
+      value: { tier: 'division-equivalent' },
+      semantic: 'echelon realignment',
+      relatedNodes: ['naf-a', 'naf-b'],
+    }];
+
+    const result = resolveView(document, { viewId: 'remove-air-divisions', selectedGroups: [] });
+
+    expect(result.semanticAnnotations).toContainEqual({
+      semantic: 'echelon realignment',
+      nodes: ['naf-a', 'naf-b'],
+      note: undefined,
+      sources: undefined,
+    });
+  });
   it('resolves a complete snapshot with inherited definitions without mutating input', () => {
     const document = cloneValidDocument();
     document.nodes.state!.note = 'Default note';
