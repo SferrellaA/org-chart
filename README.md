@@ -98,6 +98,54 @@ Nodes can carry ordered leadership billets in definitions, snapshots, or `set-no
 
 Rank markers support bundled IDs, HTTPS images, text, or emoji. See `docs/marker-catalog.md` for bundled marker IDs.
 
+## Taxonomy Foundation
+
+Snapshots may define ordered comparison tiers and named taxonomy systems. Levels in different systems map to shared tiers, allowing unlike echelon names to be compared without treating those names as equivalent identities:
+
+```json
+"taxonomy": {
+  "comparisonTiers": [
+    { "id": "naf-equivalent", "label": "NAF equivalent" },
+    { "id": "division-equivalent", "label": "Division equivalent" },
+    { "id": "wing", "label": "Wing" }
+  ],
+  "systems": [
+    {
+      "id": "usaf-echelon",
+      "label": "USAF echelon",
+      "levels": [
+        { "id": "numbered-air-force", "label": "Numbered Air Force", "tier": "naf-equivalent" },
+        { "id": "air-division", "label": "Air Division", "tier": "division-equivalent" },
+        { "id": "wing", "label": "Wing", "tier": "wing" }
+      ]
+    },
+    {
+      "id": "army-echelon",
+      "label": "Army echelon",
+      "levels": [
+        { "id": "division", "label": "Division", "tier": "division-equivalent" }
+      ]
+    }
+  ]
+}
+```
+
+Nodes use a system-to-level record, which permits assignments in several systems while enforcing at most one level in each:
+
+```json
+"taxonomyAssignments": {
+  "usaf-echelon": "wing"
+}
+```
+
+Assignments may be omitted. Resolution preserves missing classification rather than inventing a level; hierarchy-based display fallback belongs to the later taxonomy renderer.
+
+Taxonomy definitions and assignments are versioned. Proposals support granular `add-`, `set-`, and `remove-` patches for comparison tiers, taxonomy systems, and levels, plus `set-taxonomy-assignment` and `remove-taxonomy-assignment`. `set-comparison-tier-order` declares the complete final tier order whenever tiers are added or removed.
+
+Taxonomy patches in one proposal selection form a transaction. Writes compose by stable entity and field, not array position; conflicting writes are rejected, and references are checked only against the final state after structural patches. Consequently, a proposal may remove Air Division nodes and the `air-division` level, remap `numbered-air-force` to `division-equivalent`, and explicitly reparent surviving wings in any patch order. Removals never cascade to surviving nodes.
+
+This phase exposes taxonomy through validation, resolution, and diff APIs. Taxonomy-specific chart layout and controls are intentionally deferred to the Taxonomy Renderer roadmap phase.
+
 ## Snapshots And Proposals
 
 Snapshots describe complete states. Snapshot node entries can override node definition fields for that state, and hierarchy edges describe the full tree for the snapshot:

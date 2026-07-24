@@ -16,7 +16,7 @@ This roadmap records the agreed sequence for post-MVP work. Future sessions shou
 1. **Leadership** - completed 2026-07-24
    Add versioned authorized leadership data to organization nodes. Support billet title, authorized rank or grade, optional occupant, acting/vacant status, and fixed-size rank markers from bundled SVG IDs, HTTPS image URLs, text, or emoji. Render leadership consistently for subordinate cards and internal units, expose it in details, and include leadership changes in proposal diffs.
 
-2. **Taxonomy Foundation**
+2. **Taxonomy Foundation** - completed 2026-07-24
    Add versioned taxonomy data to the canonical model and schema. Support ordered comparison tiers, named taxonomy systems, taxonomy levels mapped to explicit tiers, multiple node assignments, proposal changes to assignments and definitions, validation, resolution, and diffs. Missing assignments should remain valid and use hierarchy fallback.
 
 3. **Taxonomy Renderer**
