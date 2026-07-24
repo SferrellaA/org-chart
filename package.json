@@ -1,0 +1,39 @@
+{
+  "name": "org-delta-chart",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/org-delta-chart.js"
+    },
+    "./schema": "./dist/org-delta-chart.schema.json"
+  },
+  "scripts": {
+    "build": "vite build && tsx scripts/copy-schema.ts && tsc -p tsconfig.build.json && vite build --config vite.viewer.config.ts",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "benchmark:generate": "tsx scripts/generate-benchmark.ts"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "d3": "^7.9.0",
+    "d3-org-chart": "^3.1.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.1",
+    "@types/d3": "^7.4.3",
+    "@types/node": "^24.0.14",
+    "jsdom": "^26.1.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.5",
+    "vitest": "^3.2.4"
+  }
+}
