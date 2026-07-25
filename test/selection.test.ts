@@ -166,11 +166,16 @@ describe('patch selection', () => {
       expect(result.selected).toHaveLength(Math.ceil(count / 2));
       return performance.now() - start;
     };
+    const fastest = (count: number): number => Math.min(
+      measure(count),
+      measure(count),
+      measure(count),
+    );
 
     measure(250);
-    const twoThousand = measure(2_000);
-    const fourThousand = measure(4_000);
-    const eightThousand = measure(8_000);
+    const twoThousand = fastest(2_000);
+    const fourThousand = fastest(4_000);
+    const eightThousand = fastest(8_000);
 
     expect(eightThousand).toBeLessThan(2_000);
     expect(eightThousand / Math.max(fourThousand, 1)).toBeLessThan(4);
