@@ -104,7 +104,7 @@ describe('buildRenderView', () => {
     });
   });
 
-  it('projects leadership onto outer cards, internal rows, and removed ghost nodes', () => {
+  it('projects leadership onto selected outer cards and internal rows without removed ghosts', () => {
     const root = node('root', 'Root');
     root.leadership = [{ id: 'root-cc', title: 'Commander', authorizedRank: { label: 'O-6' } }];
     const office = node('office', 'Office');
@@ -133,11 +133,7 @@ describe('buildRenderView', () => {
         leadership: [{ title: 'Director', occupant: { name: 'Taylor Example' } }],
       })],
     });
-    expect(result.nodes[1]).toMatchObject({
-      id: 'removed',
-      leadership: [{ title: 'Former Commander', vacant: true }],
-      ghost: true,
-    });
+    expect(result.nodes).toHaveLength(1);
   });
 
   it('keeps parentless state roots outer even when they have no subordinate relation', () => {
@@ -195,7 +191,7 @@ describe('buildRenderView', () => {
     expect(result.searchEntries.every((entry) => !entry.hiddenInternal)).toBe(true);
   });
 
-  it('adds removed diff-only nodes once as ghost outer nodes', () => {
+  it('keeps removed diff-only nodes out of the hierarchy and search index', () => {
     const removed = node('removed', 'Former office');
     const result = buildRenderView(
       chart(['kept']),
@@ -208,15 +204,8 @@ describe('buildRenderView', () => {
 
     expect(result.nodes.map(({ id, ghost }) => ({ id, ghost }))).toEqual([
       { id: 'kept', ghost: false },
-      { id: 'removed', ghost: true },
     ]);
-    expect(result.searchEntries.at(-1)).toEqual({
-      id: 'removed',
-      label: 'Former office',
-      aliases: [],
-      hiddenInternal: false,
-      ownerId: 'removed',
-    });
+    expect(result.searchEntries.some(({ id }) => id === 'removed')).toBe(false);
   });
 
   it('aggregates hidden relationship endpoints and omits aggregation-created self-loops', () => {
@@ -483,6 +472,24 @@ describe('presentation details', () => {
     });
     expect(result.sources).not.toBe(sources);
     expect(result.sources[0]).not.toBe(sources[0]);
+  });
+
+  it('combines node provenance with its structural diff details', () => {
+    const before = { id: 'wing', name: 'Example Wing', note: 'Unit history' };
+    const after = { ...before };
+    const result = nodeDetails(after, {
+      id: 'wing',
+      kind: 'modified',
+      before,
+      after,
+      changes: ['parent', 'edgeMetadata'],
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      title: 'Example Wing',
+      note: 'Unit history',
+      change: { kind: 'modified', fields: ['parent', 'edgeMetadata'] },
+    }));
   });
 
   it('retains hierarchy edge, relationship, change, and patch-group details', () => {

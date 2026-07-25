@@ -22,6 +22,7 @@ import { decodeHierarchyActivationId, type ChartRenderer, type RenderView } from
 import { TaxonomyRenderer } from '../renderer/taxonomy-renderer';
 import { closeDetailsPanel, renderDetailsPanel } from './details-panel';
 import { cleanupControls, renderControls, type ControlsHandlers } from './controls';
+import { hideNodeTooltip, showNodeTooltip } from './node-tooltip';
 import { installStyles } from './styles';
 import { createTemplate, type ComponentTemplate } from './template';
 
@@ -42,11 +43,12 @@ export type RendererFactory = (
   container: HTMLElement,
   callbacks: RendererCallbacks,
   mode: LayoutMode,
+  transitionDurationMs: number,
 ) => ChartRenderer<RenderView> | ChartRenderer<TaxonomyRenderView>;
 
 type ActiveRenderer =
-  | { mode: 'depth'; instance: ChartRenderer<RenderView> }
-  | { mode: 'taxonomy'; instance: ChartRenderer<TaxonomyRenderView> };
+  | { mode: 'depth'; transitionDurationMs: number; instance: ChartRenderer<RenderView> }
+  | { mode: 'taxonomy'; transitionDurationMs: number; instance: ChartRenderer<TaxonomyRenderView> };
 
 let rendererFactory: RendererFactory | undefined;
 
@@ -97,6 +99,7 @@ export class OrgDeltaChartElement extends HTMLElement {
     'show-internal',
     'show-relationships',
     'layout-mode',
+    'transition-duration',
   ];
 
   private readonly template: ComponentTemplate;
@@ -116,12 +119,22 @@ export class OrgDeltaChartElement extends HTMLElement {
   private readonly revealedInternalIds = new Set<string>();
   private renderView: RenderView | TaxonomyRenderView | undefined;
   private activeDetails: ActiveDetails | undefined;
+  private tooltipTrigger: HTMLElement | undefined;
 
   constructor() {
     super();
     const root = this.attachShadow({ mode: 'open' });
     installStyles(root);
     this.template = createTemplate(root);
+    this.template.canvas.addEventListener('pointerover', this.handleTooltipEnter);
+    this.template.canvas.addEventListener('pointerout', this.handleTooltipLeave);
+    this.template.canvas.addEventListener('focusin', this.handleTooltipEnter);
+    this.template.canvas.addEventListener('focusout', this.handleTooltipLeave);
+    this.template.controlsToggle.addEventListener('click', () => this.openControls());
+    this.template.controlsBackdrop.addEventListener('click', () => this.closeControls());
+    this.template.controlsSidebar.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') this.closeControls();
+    });
   }
 
   connectedCallback(): void {
@@ -129,6 +142,7 @@ export class OrgDeltaChartElement extends HTMLElement {
   }
 
   disconnectedCallback(): void {
+    this.closeControls(false);
     this.request?.abort();
     this.request = undefined;
     this.requestVersion += 1;
@@ -197,6 +211,7 @@ export class OrgDeltaChartElement extends HTMLElement {
   }
 
   private clearView(): void {
+    this.hideTooltip();
     this.activationVersion += 1;
     this.renderer?.instance.destroy();
     this.renderer = undefined;
@@ -207,6 +222,67 @@ export class OrgDeltaChartElement extends HTMLElement {
     this.renderView = undefined;
     this.activeDetails = undefined;
     closeDetailsPanel(this.template.details, false);
+  }
+
+  private readonly handleTooltipEnter = (event: Event): void => {
+    const trigger = this.tooltipActivation(event.target);
+    if (!trigger || trigger === this.tooltipTrigger) return;
+    this.hideTooltip();
+    const id = trigger.dataset.activateId;
+    if (!id) return;
+    const preferred = trigger.dataset.viewSide === 'baseline' ? this.baseline : this.selected;
+    const chart = preferred?.nodes.has(id)
+      ? preferred
+      : this.selected?.nodes.has(id)
+        ? this.selected
+        : this.baseline;
+    const node = chart?.nodes.get(id);
+    if (!chart || !node) return;
+    const assignment = chart.parents.get(id);
+    const parent = assignment ? chart.nodes.get(assignment.parent) : undefined;
+    this.tooltipTrigger = trigger;
+    showNodeTooltip(this.template.tooltip, trigger, {
+      node,
+      ...(parent ? { parent } : {}),
+      ...(assignment ? { assignment } : {}),
+    });
+  };
+
+  private readonly handleTooltipLeave = (event: Event): void => {
+    const trigger = this.tooltipActivation(event.target);
+    if (!trigger || trigger !== this.tooltipTrigger) return;
+    const relatedTarget = 'relatedTarget' in event ? event.relatedTarget : null;
+    if (relatedTarget instanceof Node && trigger.contains(relatedTarget)) return;
+    this.hideTooltip();
+  };
+
+  private tooltipActivation(target: EventTarget | null): HTMLElement | undefined {
+    if (!(target instanceof Element)) return undefined;
+    const trigger = target.closest<HTMLElement>(
+      '[data-activate-kind="node"], [data-activate-kind="internal"]',
+    );
+    return trigger && this.template.canvas.contains(trigger) ? trigger : undefined;
+  }
+
+  private hideTooltip(): void {
+    hideNodeTooltip(this.template.tooltip, this.tooltipTrigger);
+    this.tooltipTrigger = undefined;
+  }
+
+  private openControls(): void {
+    this.template.controlsSidebar.dataset.open = 'true';
+    this.template.controlsToggle.setAttribute('aria-expanded', 'true');
+    this.template.controlsBackdrop.hidden = false;
+    this.template.controlsSidebar.focus();
+  }
+
+  private closeControls(restoreFocus = true): void {
+    delete this.template.controlsSidebar.dataset.open;
+    this.template.controlsToggle.setAttribute('aria-expanded', 'false');
+    this.template.controlsBackdrop.hidden = true;
+    if (restoreFocus && this.template.controlsToggle.isConnected) {
+      this.template.controlsToggle.focus();
+    }
   }
 
   private clearVisualization(): void {
@@ -272,6 +348,9 @@ export class OrgDeltaChartElement extends HTMLElement {
       const taxonomyFallback = configuredMode === 'taxonomy' &&
         selected.taxonomy.comparisonTiers.length === 0;
       const layoutMode: LayoutMode = taxonomyFallback ? 'depth' : configuredMode;
+      const transitionDurationMs = this.configuredTransitionDuration(
+        selected.presentation.transitionDurationMs,
+      );
       const viewOptions = {
         showInternal: this.showInternal,
         showRelationships: this.showRelationships,
@@ -283,7 +362,11 @@ export class OrgDeltaChartElement extends HTMLElement {
             comparison: baselineId !== selectedId,
           })
         : buildRenderView(selected, diff, viewOptions);
-      if (!this.renderer || this.renderer.mode !== layoutMode) {
+      if (
+        !this.renderer ||
+        this.renderer.mode !== layoutMode ||
+        this.renderer.transitionDurationMs !== transitionDurationMs
+      ) {
         this.renderer?.instance.destroy();
         const activationVersion = this.activationVersion;
         const callbacks: RendererCallbacks = {
@@ -294,13 +377,21 @@ export class OrgDeltaChartElement extends HTMLElement {
           },
         };
         const created = rendererFactory
-          ? rendererFactory(this.template.canvas, callbacks, layoutMode)
+          ? rendererFactory(this.template.canvas, callbacks, layoutMode, transitionDurationMs)
           : layoutMode === 'taxonomy'
-            ? new TaxonomyRenderer(this.template.canvas, callbacks)
-            : new D3OrgChartRenderer(this.template.canvas, callbacks);
+            ? new TaxonomyRenderer(this.template.canvas, { ...callbacks, transitionDurationMs })
+            : new D3OrgChartRenderer(this.template.canvas, { ...callbacks, transitionDurationMs });
         this.renderer = layoutMode === 'taxonomy'
-          ? { mode: 'taxonomy', instance: created as ChartRenderer<TaxonomyRenderView> }
-          : { mode: 'depth', instance: created as ChartRenderer<RenderView> };
+          ? {
+              mode: 'taxonomy',
+              transitionDurationMs,
+              instance: created as ChartRenderer<TaxonomyRenderView>,
+            }
+          : {
+              mode: 'depth',
+              transitionDurationMs,
+              instance: created as ChartRenderer<RenderView>,
+            };
       }
       this.selected = selected;
       this.baseline = baseline;
@@ -473,8 +564,9 @@ export class OrgDeltaChartElement extends HTMLElement {
     const chart = context?.side === 'baseline' ? this.baseline : this.selected;
     if (!chart) return undefined;
     if (kind === 'node' || kind === 'internal') {
-      const node = chart.nodes.get(id);
-      return node ? nodeDetails(node) : undefined;
+      const node = chart.nodes.get(id) ?? this.baseline?.nodes.get(id);
+      const change = this.diff?.nodes.get(id);
+      return node ? nodeDetails(node, change) : undefined;
     }
     if (kind === 'hierarchy') {
       const hierarchyIds = decodeHierarchyActivationId(id);
@@ -504,6 +596,15 @@ export class OrgDeltaChartElement extends HTMLElement {
     return attribute === 'depth' || attribute === 'taxonomy'
       ? attribute
       : documentDefault ?? 'depth';
+  }
+
+  private configuredTransitionDuration(documentDefault: number | undefined): number {
+    const attribute = this.getAttribute('transition-duration');
+    if (attribute !== null && /^\d+$/.test(attribute)) {
+      const duration = Number(attribute);
+      if (duration <= 5000) return duration;
+    }
+    return documentDefault ?? 700;
   }
 
   private showFatalError(message: string, detail: unknown): void {

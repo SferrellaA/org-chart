@@ -7,7 +7,8 @@ import {
   type ZoomTransform,
 } from 'd3';
 import type { TaxonomyRenderView } from '../presentation/build-taxonomy-view';
-import { renderTaxonomyCard, type ComparisonSide } from './card';
+import { renderExpansionIcon, renderTaxonomyCard, type ComparisonSide } from './card';
+import { layoutTaxonomyNodes, type TaxonomyLayout } from './taxonomy-layout';
 import type { ActivationHandler, ActivationKind } from './overlay';
 import { encodeHierarchyActivationId, type ChartRenderer } from './types';
 
@@ -32,6 +33,7 @@ export function taxonomyConnectorPoint(
 
 export interface TaxonomyRendererOptions {
   onActivate: ActivationHandler;
+  transitionDurationMs?: number;
 }
 
 export class TaxonomyRenderer implements ChartRenderer<TaxonomyRenderView> {
@@ -44,6 +46,12 @@ export class TaxonomyRenderer implements ChartRenderer<TaxonomyRenderView> {
   private currentTransform: ZoomTransform = zoomIdentity;
   private initialFitScheduled = false;
   private hasFitted = false;
+  private readonly transitionDurationMs: number;
+  private readonly motionQuery: MediaQueryList | undefined;
+  private reducedMotion: boolean;
+  private readonly motionHandler = (event: MediaQueryListEvent): void => {
+    this.reducedMotion = event.matches;
+  };
   private readonly clickHandler = (event: MouseEvent): void => {
     const target = event.target;
     if (target instanceof Element) {
@@ -120,6 +128,12 @@ export class TaxonomyRenderer implements ChartRenderer<TaxonomyRenderView> {
     private readonly host: HTMLElement,
     private readonly options: TaxonomyRendererOptions,
   ) {
+    this.transitionDurationMs = options.transitionDurationMs ?? 700;
+    this.motionQuery = typeof matchMedia === 'function'
+      ? matchMedia('(prefers-reduced-motion: reduce)')
+      : undefined;
+    this.reducedMotion = this.motionQuery?.matches ?? false;
+    this.motionQuery?.addEventListener?.('change', this.motionHandler);
     this.mount.className = 'org-delta-taxonomy-renderer';
     this.mount.addEventListener('click', this.clickHandler);
     this.mount.addEventListener('keydown', this.keyHandler);
@@ -140,6 +154,10 @@ export class TaxonomyRenderer implements ChartRenderer<TaxonomyRenderView> {
 
   render(view: TaxonomyRenderView): void {
     if (this.destroyed) return;
+    const previousPositions = this.cardPositions();
+    const shouldAnimate = this.currentView !== undefined &&
+      !this.reducedMotion &&
+      this.transitionDurationMs > 0;
     this.currentView = view;
     for (const side of [view.baseline, view.proposed]) {
       for (const node of side?.nodes ?? []) {
@@ -149,6 +167,10 @@ export class TaxonomyRenderer implements ChartRenderer<TaxonomyRenderView> {
       }
     }
     const comparison = view.baseline !== undefined;
+    const baselineVisible = view.baseline ? this.visibleNodes(view.baseline.nodes) : [];
+    const proposedVisible = this.visibleNodes(view.proposed.nodes);
+    const baselineLayout = layoutTaxonomyNodes(baselineVisible);
+    const proposedLayout = layoutTaxonomyNodes(proposedVisible);
     const world = document.createElement('div');
     world.className = 'org-delta-taxonomy-world';
     world.dataset.taxonomyComparison = String(comparison);
@@ -156,8 +178,25 @@ export class TaxonomyRenderer implements ChartRenderer<TaxonomyRenderView> {
 
     const header = document.createElement('div');
     header.className = 'org-delta-taxonomy-header';
-    if (comparison) header.append(this.heading('Baseline', 'baseline'));
-    header.append(this.heading(comparison ? 'Proposed' : 'Organization chart', 'proposed'));
+    if (view.baseline) {
+      header.append(
+        this.taxonomyHeadings(view.baseline.systems, 'baseline'),
+        this.heading('Baseline', 'baseline'),
+      );
+    } else {
+      const spacer = document.createElement('span');
+      spacer.className = 'org-delta-taxonomy-header-spacer';
+      header.append(spacer);
+    }
+    if (view.baseline) {
+      const gutter = document.createElement('span');
+      gutter.className = 'org-delta-taxonomy-header-spacer';
+      header.append(gutter);
+    }
+    header.append(
+      this.heading(comparison ? 'Proposed' : 'Organization chart', 'proposed'),
+      this.taxonomyHeadings(view.proposed.systems, 'proposed'),
+    );
     world.append(header);
 
     for (const tier of view.tiers) {
@@ -173,9 +212,10 @@ export class TaxonomyRenderer implements ChartRenderer<TaxonomyRenderView> {
         row.append(
           this.taxonomyCells(view.baseline.systems, tier.id, 'baseline'),
           this.nodeLane(
-            this.visibleNodes(view.baseline.nodes).filter((node) => node.tierId === tier.id),
+            baselineVisible.filter((node) => node.tierId === tier.id),
             'baseline',
             view.baseline.nodes,
+            baselineLayout,
           ),
         );
       }
@@ -193,9 +233,10 @@ export class TaxonomyRenderer implements ChartRenderer<TaxonomyRenderView> {
       row.append(
         gutter,
         this.nodeLane(
-          this.visibleNodes(view.proposed.nodes).filter((node) => node.tierId === tier.id),
+          proposedVisible.filter((node) => node.tierId === tier.id),
           'proposed',
           view.proposed.nodes,
+          proposedLayout,
         ),
         this.taxonomyCells(view.proposed.systems, tier.id, 'proposed'),
       );
@@ -203,6 +244,7 @@ export class TaxonomyRenderer implements ChartRenderer<TaxonomyRenderView> {
     }
     this.mount.replaceChildren(world);
     this.syncConnectors(view, world);
+    if (shouldAnimate) this.animateCards(previousPositions, world);
     if (view.baseline) this.mount.append(this.navigationTree(view.baseline.nodes, 'baseline'));
     this.mount.append(this.navigationTree(view.proposed.nodes, 'proposed'));
     if (!this.hasFitted && !this.initialFitScheduled) {
@@ -288,10 +330,69 @@ export class TaxonomyRenderer implements ChartRenderer<TaxonomyRenderView> {
     this.currentView = undefined;
     this.expansion.clear();
     this.resizeObserver?.disconnect();
+    this.motionQuery?.removeEventListener?.('change', this.motionHandler);
     select(this.mount).on('.zoom', null);
     this.mount.removeEventListener('click', this.clickHandler);
     this.mount.removeEventListener('keydown', this.keyHandler);
     this.mount.remove();
+  }
+
+  private cardPositions(): Map<string, DOMRect> {
+    const positions = new Map<string, DOMRect>();
+    for (const card of this.mount.querySelectorAll<HTMLElement>('[data-node-id][data-view-side]')) {
+      positions.set(`${card.dataset.viewSide}:${card.dataset.nodeId}`, card.getBoundingClientRect());
+    }
+    return positions;
+  }
+
+  private animateCards(previous: ReadonlyMap<string, DOMRect>, world: HTMLElement): void {
+    if (typeof Element.prototype.animate !== 'function') return;
+    const options: KeyframeAnimationOptions = {
+      duration: this.transitionDurationMs,
+      easing: 'ease-in-out',
+    };
+    for (const card of world.querySelectorAll<HTMLElement>('[data-node-id][data-view-side]')) {
+      const side = card.dataset.viewSide as ComparisonSide;
+      const id = card.dataset.nodeId!;
+      const before = previous.get(`${side}:${id}`);
+      if (!before) {
+        const nodes = side === 'baseline'
+          ? this.currentView?.baseline?.nodes
+          : this.currentView?.proposed.nodes;
+        const node = nodes?.find((candidate) => candidate.id === id);
+        const parentId = node?.connectorSourceId ?? node?.parentId;
+        const parent = parentId ? previous.get(`${side}:${parentId}`) : undefined;
+        if (parent) {
+          const after = card.getBoundingClientRect();
+          const x = parent.left + parent.width / 2 - (after.left + after.width / 2);
+          const y = parent.top + parent.height / 2 - (after.top + after.height / 2);
+          card.animate(
+            [
+              { transform: `translate(${x}px, ${y}px)`, opacity: 0 },
+              { transform: 'translate(0, 0)', opacity: 1 },
+            ],
+            options,
+          );
+        } else {
+          card.animate([{ opacity: 0 }, { opacity: 1 }], options);
+        }
+        continue;
+      }
+      const after = card.getBoundingClientRect();
+      const x = before.left - after.left;
+      const y = before.top - after.top;
+      if (x || y) {
+        card.animate(
+          [{ transform: `translate(${x}px, ${y}px)` }, { transform: 'translate(0, 0)' }],
+          options,
+        );
+      }
+    }
+    for (const connectors of world.querySelectorAll<SVGSVGElement>(
+      '.org-delta-taxonomy-connectors',
+    )) {
+      connectors.animate([{ opacity: 0 }, { opacity: 1 }], options);
+    }
   }
 
   private heading(text: string, side: ComparisonSide): HTMLElement {
@@ -318,9 +419,6 @@ export class TaxonomyRenderer implements ChartRenderer<TaxonomyRenderView> {
       const cell = document.createElement('div');
       cell.className = 'org-delta-taxonomy-system';
       cell.dataset.taxonomySystem = system.id;
-      const label = document.createElement('strong');
-      label.textContent = system.label;
-      cell.append(label);
       for (const level of system.levels.filter(({ tier }) => tier === tierId)) {
         const levelLabel = document.createElement('span');
         levelLabel.dataset.taxonomyLevel = level.id;
@@ -332,19 +430,38 @@ export class TaxonomyRenderer implements ChartRenderer<TaxonomyRenderView> {
     return cells;
   }
 
+  private taxonomyHeadings(
+    systems: TaxonomyRenderView['proposed']['systems'],
+    side: ComparisonSide,
+  ): HTMLElement {
+    const headings = document.createElement('div');
+    headings.className = 'org-delta-taxonomy-system-headings';
+    headings.dataset.viewSide = side;
+    for (const system of systems) {
+      const heading = document.createElement('strong');
+      heading.dataset.taxonomySystemHeading = system.id;
+      heading.textContent = system.label;
+      headings.append(heading);
+    }
+    return headings;
+  }
+
   private nodeLane(
     nodes: TaxonomyRenderView['proposed']['nodes'],
     side: ComparisonSide,
     allNodes: TaxonomyRenderView['proposed']['nodes'],
+    layout: TaxonomyLayout,
   ): HTMLElement {
     const lane = document.createElement('div');
     lane.className = 'org-delta-taxonomy-node-lane';
     lane.dataset.viewSide = side;
+    lane.style.width = `${layout.width}px`;
     for (const node of nodes) {
       const template = document.createElement('template');
       template.innerHTML = renderTaxonomyCard(node, side);
       const card = template.content.firstElementChild;
       if (card) {
+        (card as HTMLElement).style.left = `${layout.positions.get(node.id) ?? 0}px`;
         const expandable = this.expandableIds(allNodes).has(node.id);
         if (expandable) {
           const toggle = document.createElement('button');
@@ -355,7 +472,7 @@ export class TaxonomyRenderer implements ChartRenderer<TaxonomyRenderView> {
           toggle.dataset.viewSide = side;
           toggle.setAttribute('aria-expanded', String(expanded));
           toggle.setAttribute('aria-label', `${expanded ? 'Collapse' : 'Expand'} children of ${node.name}`);
-          toggle.textContent = expanded ? '−' : '+';
+          toggle.innerHTML = renderExpansionIcon(expanded);
           card.append(toggle);
         }
         lane.append(card);

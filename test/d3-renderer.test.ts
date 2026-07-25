@@ -163,7 +163,31 @@ describe('D3OrgChartRenderer', () => {
     ]);
     expect(chart.calls.filter(([name]) => name === 'render')).toHaveLength(1);
     expect(chart.calls.some(([name]) => name === 'minPagingVisibleNodes')).toBe(true);
+    const buttonContent = chart.calls.find(([name]) => name === 'buttonContent')?.[1];
+    expect(buttonContent).toBeTypeOf('function');
+    if (typeof buttonContent === 'function') {
+      expect(buttonContent({ node: { children: [{}] }, state: {} }))
+        .toContain('org-delta-expansion-chevron--expanded');
+      expect(buttonContent({ node: { children: null }, state: {} }))
+        .toContain('org-delta-expansion-chevron--collapsed');
+    }
     expect(chart.calls.some(([name]) => name.toLowerCase().includes('minimap'))).toBe(false);
+  });
+
+  it('uses configured motion after an immediate initial render', () => {
+    const host = document.createElement('div');
+    const renderer = new D3OrgChartRenderer(host, {
+      onActivate: vi.fn(),
+      transitionDurationMs: 900,
+    });
+    const chart = mocked.FakeOrgChart.instances[0]!;
+
+    renderer.render(view([node()]));
+    const firstRender = chart.calls.findIndex(([name]) => name === 'render');
+    expect(chart.calls.slice(0, firstRender)).toContainEqual(['duration', 0]);
+    expect(chart.calls.filter(([name]) => name === 'duration').at(-1)).toEqual(['duration', 900]);
+    renderer.render(view([node({ name: 'Updated' })]));
+    expect(chart.calls.filter(([name]) => name === 'duration').at(-1)).toEqual(['duration', 900]);
   });
 
   it('owns an isolated mount and preserves unrelated host children on destroy', () => {
@@ -380,10 +404,10 @@ describe('D3OrgChartRenderer', () => {
     expect(container.querySelector('[onclick],[onmouseover],[onerror]')).toBeNull();
     expect(container.querySelector('button[data-activate-kind="node"]')).not.toBeNull();
     expect(container.querySelector('button[data-activate-kind="internal"]')).not.toBeNull();
-    expect(container.querySelector('[data-internal-id]')?.hasAttribute('aria-label')).toBe(false);
+    expect(container.querySelector('[data-internal-id]')?.tagName).toBe('BUTTON');
     expect(container.querySelector('button[data-activate-kind="internal"]')?.getAttribute('aria-label'))
       .toBe('<b>Internal</b>, internal unit, depth 1, contains subordinate organizations');
-    expect(container.querySelector('button[data-activate-kind="change"]')).not.toBeNull();
+    expect(container.querySelector('button[data-activate-kind="change"]')).toBeNull();
     expect(container.querySelector('.org-delta-node--ghost')).not.toBeNull();
     expect(container.textContent).toContain('<script>alert(1)</script>');
   });
@@ -797,10 +821,15 @@ describe('D3OrgChartRenderer', () => {
     renderer.render(view());
     expect(animationFrames).toHaveLength(2);
     animationFrames[0]?.(0);
+    renderer.render(view([node({ name: 'Updated' })]));
+    for (let index = 1; index < 60 && animationFrames[index]; index += 1) {
+      animationFrames[index]?.(index * 16);
+    }
+    const beforeTransitionEnd = animationFrames.length;
 
-    vi.advanceTimersByTime(300);
+    vi.advanceTimersByTime(700);
 
-    expect(animationFrames.length).toBeGreaterThan(2);
+    expect(animationFrames.length).toBeGreaterThan(beforeTransitionEnd);
     renderer.destroy();
   });
 

@@ -680,6 +680,7 @@
       "additionalProperties": false,
       "properties": {
         "layoutMode": { "enum": ["depth", "taxonomy"] },
+        "transitionDurationMs": { "type": "integer", "minimum": 0, "maximum": 5000 },
         "initialExpansionDepth": { "type": "integer", "minimum": 0 },
         "focusNodes": {
           "type": "array",

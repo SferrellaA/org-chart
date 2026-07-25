@@ -53,6 +53,12 @@ export function activationAttributes(
   return `data-activate-kind="${kind}" data-activate-id="${escapeHtml(id)}"${side ? ` data-view-side="${side}"` : ''}`;
 }
 
+export function renderExpansionIcon(expanded: boolean): string {
+  const modifier = expanded ? 'expanded' : 'collapsed';
+  const points = expanded ? '3,5 8,10 13,5' : '5,3 10,8 5,13';
+  return `<span class="org-delta-expansion-control" aria-hidden="true"><span class="org-delta-expansion-chevron org-delta-expansion-chevron--${modifier}"><svg viewBox="0 0 16 16" focusable="false"><polyline points="${points}"></polyline></svg></span></span>`;
+}
+
 function rankText(rank: RankDisplay | undefined): string {
   if (!rank) return '';
   if (rank.label) return rank.label;
@@ -92,7 +98,7 @@ export function renderLeadership(
   return (leadership ?? []).map((position) => {
     const primaryText = [rankText(position.authorizedRank), position.title].filter(Boolean).join(' ');
     const primary = primaryText
-      ? `<div class="org-delta-leadership-primary">${renderRank(position.authorizedRank)}${position.title ? `<span class="org-delta-leadership-title">${escapeHtml(position.title)}</span>` : ''}</div>`
+      ? `<span class="org-delta-leadership-primary">${renderRank(position.authorizedRank)}${position.title ? `<span class="org-delta-leadership-title">${escapeHtml(position.title)}</span>` : ''}</span>`
       : '';
     const occupantText = position.occupant
       ? [
@@ -102,30 +108,59 @@ export function renderLeadership(
         ].filter(Boolean).join(' ')
       : '';
     const occupant = position.occupant
-      ? `<div class="org-delta-leadership-occupant">${position.occupant.acting ? '<span class="org-delta-leadership-badge">Acting</span>' : ''}${renderRank(position.occupant.rank)}<span>${escapeHtml(position.occupant.name)}</span></div>`
+      ? `<span class="org-delta-leadership-occupant">${position.occupant.acting ? '<span class="org-delta-leadership-badge">Acting</span>' : ''}${renderRank(position.occupant.rank)}<span>${escapeHtml(position.occupant.name)}</span></span>`
       : '';
     const vacant = position.vacant ? '<span class="org-delta-leadership-badge">Vacant</span>' : '';
     const label = [primaryText, occupantText, position.vacant ? 'Vacant' : undefined].filter(Boolean).join('; ');
-    return `<div class="org-delta-leadership" aria-label="${escapeHtml(label)}">${primary}${occupant}${vacant}</div>`;
+    return `<span class="org-delta-leadership" aria-label="${escapeHtml(label)}">${primary}${occupant}${vacant}</span>`;
   }).join('');
+}
+
+interface UnitCardData {
+  id: string;
+  name: string;
+  kind: ActivationKind;
+  diffKind: DiffKind;
+  side?: ComparisonSide;
+  leadership?: readonly LeadershipPosition[];
+  classes?: readonly string[];
+  nameClass?: string;
+  ariaLabel?: string;
+  content?: string;
+}
+
+function renderUnitCard(data: UnitCardData): string {
+  const classes = [
+    'org-delta-node',
+    'org-delta-unit-card',
+    `org-delta-node--${data.diffKind}`,
+    ...(data.classes ?? []),
+  ].join(' ');
+  const ariaLabel = data.ariaLabel ? ` aria-label="${escapeHtml(data.ariaLabel)}"` : '';
+  return `<button type="button" class="${classes}" ${activationAttributes(data.kind, data.id, data.side)}${ariaLabel}><span class="${data.nameClass ?? 'org-delta-node-name'}">${escapeHtml(data.name)}</span>${data.content ?? ''}${renderLeadership(data.leadership)}</button>`;
 }
 
 export function renderDepthNodeContent(node: RenderNode): string {
   const nodeId = escapeHtml(node.id);
   const nodeDiffKind = safeDiffKind(node.diffKind);
-  const classes = [
-    'org-delta-node',
-    `org-delta-node--${nodeDiffKind}`,
-    ...(node.ghost ? ['org-delta-node--ghost'] : []),
-  ].join(' ');
   const rows = node.internalRows.map((row) => {
     const rowId = escapeHtml(row.id);
     const rowDiffKind = safeDiffKind(row.diffKind);
-    const change = rowDiffKind === 'unchanged'
-      ? ''
-      : `<button type="button" class="org-delta-change org-delta-change--${rowDiffKind}" ${activationAttributes('change', row.id)} aria-label="View changes for ${escapeHtml(row.name)}">${rowDiffKind}</button>`;
     const internalLabel = `${row.name}, internal unit, depth ${safeDepth(row.depth)}${row.hasSubordinateChildren ? ', contains subordinate organizations' : ''}`;
-    return `<div class="org-delta-internal org-delta-internal--${rowDiffKind}" data-internal-id="${rowId}" data-depth="${safeDepth(row.depth)}"><button type="button" class="org-delta-internal-name" ${activationAttributes('internal', row.id)} aria-label="${escapeHtml(internalLabel)}">${escapeHtml(row.name)}</button>${row.hasSubordinateChildren ? '<span class="org-delta-subordinate-marker" aria-label="Has subordinate children"></span>' : ''}${change}${renderLeadership(row.leadership)}</div>`;
+    const card = renderUnitCard({
+      id: row.id,
+      name: row.name,
+      kind: 'internal',
+      diffKind: rowDiffKind,
+      ...(row.leadership ? { leadership: row.leadership } : {}),
+      classes: ['org-delta-internal', `org-delta-internal--${rowDiffKind}`],
+      nameClass: 'org-delta-node-name org-delta-internal-name',
+      ariaLabel: internalLabel,
+      content: row.hasSubordinateChildren
+        ? '<span class="org-delta-subordinate-marker" aria-label="Has subordinate children"></span>'
+        : '',
+    });
+    return card.replace('<button ', `<button data-internal-id="${rowId}" data-depth="${safeDepth(row.depth)}" `);
   }).join('');
   const internalCount = safeCount(node.hiddenInternalCount);
   const changeCount = safeCount(node.hiddenChangeCount);
@@ -135,10 +170,16 @@ export function renderDepthNodeContent(node: RenderNode): string {
   const hiddenChanges = changeCount > 0
     ? `<span class="org-delta-hidden-changes" data-hidden-change-count="${changeCount}">${changeCount} changed</span>`
     : '';
-  const change = nodeDiffKind === 'unchanged' && changeCount === 0
-    ? ''
-    : `<button type="button" class="org-delta-change org-delta-change--${nodeDiffKind}" ${activationAttributes('change', node.id)}>View changes</button>`;
-  return `<article class="${classes}" data-node-id="${nodeId}" data-diff-kind="${nodeDiffKind}"><button type="button" class="org-delta-node-name" ${activationAttributes('node', node.id)}>${escapeHtml(node.name)}</button>${change}${hiddenInternal}${hiddenChanges}${renderLeadership(node.leadership)}<div class="org-delta-internal-rows">${rows}</div></article>`;
+  const card = renderUnitCard({
+    id: node.id,
+    name: node.name,
+    kind: 'node',
+    diffKind: nodeDiffKind,
+    ...(node.leadership ? { leadership: node.leadership } : {}),
+    classes: node.ghost ? ['org-delta-node--ghost'] : [],
+    content: `${hiddenInternal}${hiddenChanges}`,
+  });
+  return `<article class="org-delta-node-shell" data-node-id="${nodeId}" data-diff-kind="${nodeDiffKind}">${card}<div class="org-delta-internal-rows">${rows}</div></article>`;
 }
 
 export function renderTaxonomyCard(
@@ -147,14 +188,15 @@ export function renderTaxonomyCard(
 ): string {
   const kind = node.internal ? 'internal' : 'node';
   const diffKind = safeDiffKind(node.diffKind);
-  const classes = [
-    'org-delta-node',
-    'org-delta-taxonomy-card',
-    `org-delta-node--${diffKind}`,
-    ...(node.internal ? ['org-delta-taxonomy-card--internal'] : []),
-  ].join(' ');
-  const change = diffKind === 'unchanged'
-    ? ''
-    : `<button type="button" class="org-delta-change org-delta-change--${diffKind}" ${activationAttributes('change', node.id, side)}>View changes</button>`;
-  return `<article class="${classes}" data-node-id="${escapeHtml(node.id)}" data-tier-id="${escapeHtml(node.tierId)}" data-view-side="${side}" data-diff-kind="${diffKind}"><button type="button" class="org-delta-node-name" ${activationAttributes(kind, node.id, side)}>${escapeHtml(node.name)}</button>${change}${renderLeadership(node.leadership)}</article>`;
+  const wrapperClasses = `org-delta-taxonomy-card${node.internal ? ' org-delta-taxonomy-card--internal' : ''}`;
+  const card = renderUnitCard({
+    id: node.id,
+    name: node.name,
+    kind,
+    diffKind,
+    side,
+    ...(node.leadership ? { leadership: node.leadership } : {}),
+    classes: node.internal ? ['org-delta-taxonomy-unit-card--internal'] : [],
+  });
+  return `<article class="${wrapperClasses}" data-node-id="${escapeHtml(node.id)}" data-tier-id="${escapeHtml(node.tierId)}" data-view-side="${side}" data-diff-kind="${diffKind}">${card}</article>`;
 }

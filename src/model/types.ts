@@ -324,6 +324,7 @@ export interface PresentationDefaults {
   initialExpansionDepth?: number;
   focusNodes?: readonly string[];
   layoutMode?: LayoutMode;
+  transitionDurationMs?: number;
 }
 
 export interface OrgDocument {

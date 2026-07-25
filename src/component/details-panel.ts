@@ -27,6 +27,7 @@ export function closeDetailsPanel(container: HTMLElement, restoreFocus = true): 
   }
   container.replaceChildren();
   container.hidden = true;
+  container.parentElement?.classList.remove('workspace--details-open');
   if (restoreFocus && state?.trigger.isConnected && typeof state.trigger.focus === 'function') {
     state.trigger.focus();
   }
@@ -71,6 +72,14 @@ export function renderDetailsPanel(
     }
     container.append(heading, list);
   }
+  if (item.change) {
+    const heading = document.createElement('h3');
+    heading.textContent = 'Changes';
+    const summary = document.createElement('p');
+    const fields = item.change.fields.length ? `: ${item.change.fields.join(', ')}` : '';
+    summary.textContent = `${item.change.kind}${fields}`;
+    container.append(heading, summary);
+  }
   const sources = item.sources.flatMap((source) => {
     const url = safeHttpUrl(source.url);
     return url ? [{ ...source, url }] : [];
@@ -103,5 +112,6 @@ export function renderDetailsPanel(
   container.addEventListener('keydown', keyHandler);
   states.set(container, { trigger, closeButton: close, clickHandler, keyHandler });
   container.hidden = false;
+  container.parentElement?.classList.add('workspace--details-open');
   if (focusHeading) title.focus();
 }

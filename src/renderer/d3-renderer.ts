@@ -2,7 +2,7 @@
 // @ts-expect-error The adapter below defines the supported API surface it consumes.
 import { OrgChart } from 'd3-org-chart';
 import { ConnectorOverlay } from './overlay';
-import { renderDepthNodeContent } from './card';
+import { renderDepthNodeContent, renderExpansionIcon } from './card';
 import type { ActivationHandler, ActivationKind } from './overlay';
 import {
   encodeHierarchyActivationId,
@@ -49,6 +49,7 @@ interface OrgChartApi {
   svgWidth(value: number): this;
   svgHeight(value: number): this;
   nodeContent(value: (node: D3HierarchyNode) => string): this;
+  buttonContent(value: (options: { node: D3HierarchyNode; state: unknown }) => string): this;
   compact(value: boolean): this;
   duration(value: number): this;
   scaleExtent(value: [number, number]): this;
@@ -71,6 +72,7 @@ interface OrgChartApi {
 
 export interface D3OrgChartRendererOptions {
   onActivate: ActivationHandler;
+  transitionDurationMs?: number;
 }
 
 const ACTIVATION_KINDS = new Set<ActivationKind>([
@@ -116,7 +118,7 @@ function renderNodeContent({ data: node }: D3HierarchyNode): string {
 }
 
 export class D3OrgChartRenderer implements ChartRenderer {
-  private static readonly LAYOUT_DURATION = 300;
+  private static readonly DEFAULT_TRANSITION_DURATION = 700;
   private readonly mount = document.createElement('div');
   private readonly emptyState = document.createElement('div');
   private readonly chart: OrgChartApi;
@@ -142,6 +144,7 @@ export class D3OrgChartRenderer implements ChartRenderer {
   private chartHasData = false;
   private layoutTimer: ReturnType<typeof setTimeout> | undefined;
   private destroyed = false;
+  private readonly transitionDurationMs: number;
   private readonly motionHandler = (event: MediaQueryListEvent): void => {
     this.reducedMotion = event.matches;
     if (event.matches) this.transitionFrames = 0;
@@ -174,6 +177,7 @@ export class D3OrgChartRenderer implements ChartRenderer {
     private readonly host: HTMLElement,
     private readonly options: D3OrgChartRendererOptions,
   ) {
+    this.transitionDurationMs = options.transitionDurationMs ?? D3OrgChartRenderer.DEFAULT_TRANSITION_DURATION;
     this.mount.className = 'org-delta-renderer-root';
     this.mount.style.position = 'relative';
     this.mount.style.width = '100%';
@@ -209,13 +213,14 @@ export class D3OrgChartRenderer implements ChartRenderer {
       .container(this.mount)
       .nodeId((node) => node.id)
       .parentNodeId((node) => node.parentId)
-      .nodeWidth(({ data }) => isSynthetic(data) ? 1 : 280)
+      .nodeWidth(({ data }) => isSynthetic(data) ? 1 : 250)
       .nodeHeight(({ data }) => isSynthetic(data)
         ? 1
-        : 88 + (data.leadership?.length ?? 0) * 44 + data.internalRows.length * 52 + data.internalRows.reduce((sum, row) => sum + (row.leadership?.length ?? 0) * 36, 0))
+        : 72 + (data.leadership?.length ?? 0) * 44 + data.internalRows.length * 56 + data.internalRows.reduce((sum, row) => sum + (row.leadership?.length ?? 0) * 36, 0))
       .nodeContent(renderNodeContent)
+      .buttonContent(({ node }) => renderExpansionIcon(Boolean(node.children)))
       .compact(false)
-      .duration(this.reducedMotion ? 0 : D3OrgChartRenderer.LAYOUT_DURATION)
+      .duration(0)
       .scaleExtent([0.15, 4])
       .minPagingVisibleNodes(() => 200)
       .onZoom(() => {
@@ -359,10 +364,12 @@ export class D3OrgChartRenderer implements ChartRenderer {
     );
     this.chart.data(data).render();
     this.chartHasData = true;
+    // d3-org-chart handles expansion internally, so restore motion after the immediate first render.
+    this.chart.duration(this.layoutDuration());
     this.syncRelationshipDescriptions(view);
     this.syncDiagramSemantics();
     this.syncNavigationTree();
-    this.scheduleAfterLayout();
+    this.scheduleAfterLayout(duration);
   }
 
   reveal(nodeId: string): void {
@@ -709,8 +716,7 @@ export class D3OrgChartRenderer implements ChartRenderer {
     viewport.setAttribute('height', String(height / k * scale));
   }
 
-  private scheduleAfterLayout(): void {
-    const duration = this.layoutDuration();
+  private scheduleAfterLayout(duration = this.layoutDuration()): void {
     this.transitionFrames = duration === 0 ? 0 : Math.ceil(duration / 16);
     this.scheduleOverlay();
     this.scheduleMinimap();
@@ -721,7 +727,7 @@ export class D3OrgChartRenderer implements ChartRenderer {
       this.layoutTimer = undefined;
       this.scheduleOverlay();
       this.scheduleMinimap();
-    }, D3OrgChartRenderer.LAYOUT_DURATION);
+    }, duration);
   }
 
   private configureSize(): void {
@@ -736,10 +742,11 @@ export class D3OrgChartRenderer implements ChartRenderer {
 
   private layoutDuration(): number {
     return this.reducedMotion ||
+      !this.chartHasData ||
       !this.currentView ||
       this.currentView.nodes.length + this.currentView.relationships.length >= 300
       ? 0
-      : D3OrgChartRenderer.LAYOUT_DURATION;
+      : this.transitionDurationMs;
   }
 
   private captureExpansion(nodes: readonly D3HierarchyNode[]): void {

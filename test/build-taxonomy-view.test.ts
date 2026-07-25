@@ -25,7 +25,33 @@ const options = {
 };
 
 describe('buildTaxonomyRenderView', () => {
-  it('uses proposed tier order and retains baseline-only tiers by their former neighbors', () => {
+  it('renders only the selected state without visual comparison artifacts', () => {
+    const document = taxonomyDocument();
+    const baseline = resolveView(document, { viewId: 'current', selectedGroups: [] });
+    const selected = resolveView(document, {
+      viewId: 'remove-air-divisions',
+      selectedGroups: [],
+    });
+
+    const view = buildTaxonomyRenderView(
+      baseline,
+      selected,
+      diffCharts(baseline, selected),
+      options,
+    );
+
+    expect(view.baseline).toBeUndefined();
+    expect(view.tiers.map(({ id }) => id)).toEqual(
+      selected.taxonomy.comparisonTiers.map(({ id }) => id),
+    );
+    expect(view.tiers.every(({ kind }) => kind === 'unchanged')).toBe(true);
+    expect(view.proposed.nodes).toHaveLength(selected.nodes.size);
+    expect(view.proposed.nodes.every(({ diffKind }) => diffKind === 'unchanged')).toBe(true);
+    expect(view.movements).toEqual([]);
+    expect(view.searchEntries.some(({ id }) => id === 'air-division-a')).toBe(false);
+  });
+
+  it('uses only selected tier definitions and order', () => {
     const baseline = chart([
       { id: 'command', label: 'Command' },
       { id: 'division', label: 'Division' },
@@ -39,25 +65,15 @@ describe('buildTaxonomyRenderView', () => {
 
     const view = buildTaxonomyRenderView(baseline, proposed, diffCharts(baseline, proposed), options);
 
-    expect(view.tiers.map(({ id }) => id)).toEqual([
-      'command',
-      'division',
-      'wing',
-      'squadron',
-    ]);
+    expect(view.tiers.map(({ id }) => id)).toEqual(['command', 'wing', 'squadron']);
     expect(view.tiers[1]).toMatchObject({
-      id: 'division',
-      kind: 'removed',
-      baseline: { label: 'Division' },
-    });
-    expect(view.tiers[3]).toMatchObject({
-      id: 'squadron',
-      kind: 'added',
-      proposed: { label: 'Squadron' },
+      id: 'wing',
+      kind: 'unchanged',
+      proposed: { label: 'Wing' },
     });
   });
 
-  it('projects complete version-specific chart halves and records tier movements', () => {
+  it('projects selected leadership and omits removed baseline organizations', () => {
     const document = taxonomyDocument();
     const baseline = resolveView(document, { viewId: 'current', selectedGroups: [] });
     const proposed = resolveView(document, {
@@ -72,29 +88,16 @@ describe('buildTaxonomyRenderView', () => {
       options,
     );
 
-    expect(view.baseline?.nodes).toHaveLength(8);
+    expect(view.baseline).toBeUndefined();
     expect(view.proposed.nodes).toHaveLength(6);
-    expect(view.baseline?.systems.map(({ id }) => id)).toEqual(['army-echelon', 'usaf-echelon']);
     expect(view.proposed.systems.map(({ id }) => id)).toEqual(['army-echelon', 'usaf-echelon']);
-    expect(view.baseline?.nodes.find(({ id }) => id === 'air-division-a')).toMatchObject({
-      tierId: 'division-equivalent',
-      diffKind: 'removed',
-      leadership: [{ title: 'Commander' }],
-    });
     expect(view.proposed.nodes.find(({ id }) => id === 'naf-a')).toMatchObject({
       tierId: 'division-equivalent',
-      diffKind: 'modified',
+      diffKind: 'unchanged',
       leadership: [{ title: 'Deputy Commander' }],
     });
-    expect(view.movements).toContainEqual({
-      nodeId: 'naf-a',
-      fromTierId: 'naf-equivalent',
-      toTierId: 'division-equivalent',
-    });
-    expect(view.searchEntries.find(({ id }) => id === 'air-division-a')).toMatchObject({
-      label: 'Example Air Division A',
-      ownerId: 'air-division-a',
-    });
+    expect(view.movements).toEqual([]);
+    expect(view.searchEntries.find(({ id }) => id === 'air-division-a')).toBeUndefined();
   });
 
   it('uses hierarchy fallback for missing and conflicting assignments and clamps deep nodes', () => {
@@ -235,7 +238,7 @@ describe('buildTaxonomyRenderView', () => {
     expect(view.initialExpansionIds).toEqual(['root']);
   });
 
-  it('uses each side own tiers for hierarchy fallback', () => {
+  it('uses selected tiers for hierarchy fallback', () => {
     const baseline = chart([
       { id: 'retired', label: 'Retired' },
       { id: 'shared', label: 'Shared' },
@@ -254,11 +257,11 @@ describe('buildTaxonomyRenderView', () => {
       options,
     );
 
-    expect(view.baseline?.nodes[0]?.tierId).toBe('retired');
+    expect(view.baseline).toBeUndefined();
     expect(view.proposed.nodes[0]?.tierId).toBe('shared');
   });
 
-  it('uses shared rows when taxonomy is introduced by the proposal', () => {
+  it('uses selected rows when taxonomy is introduced in the selected state', () => {
     const baseline = chart([]);
     baseline.nodes = new Map([['unit', { id: 'unit', name: 'Unit' }]]);
     const proposed = chart([
@@ -274,7 +277,8 @@ describe('buildTaxonomyRenderView', () => {
       options,
     );
 
-    expect(view.baseline?.systems).toEqual([]);
-    expect(view.baseline?.nodes[0]?.tierId).toBe('top');
+    expect(view.baseline).toBeUndefined();
+    expect(view.tiers.map(({ id }) => id)).toEqual(['top', 'lower']);
+    expect(view.proposed.nodes[0]?.tierId).toBe('top');
   });
 });

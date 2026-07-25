@@ -249,23 +249,6 @@ export function buildRenderView(
     nodes.push(rendered);
   }
 
-  const ghostNodes = new Map<string, ResolvedNode>();
-  for (const [id, item] of diff.nodes) {
-    if (!chart.nodes.has(id) && item.kind === 'removed' && item.before) {
-      ghostNodes.set(id, item.before);
-      nodes.push({
-        id,
-        name: item.before.name,
-        ...(item.before.leadership ? { leadership: cloneLeadership(item.before.leadership)! } : {}),
-        internalRows: [],
-        hiddenInternalCount: 0,
-        hiddenChangeCount: 0,
-        diffKind: 'removed',
-        ghost: true,
-      });
-    }
-  }
-
   const searchEntries: SearchEntry[] = [];
   for (const [id, node] of chart.nodes) {
     const projection = projections.get(id)!;
@@ -277,22 +260,12 @@ export function buildRenderView(
       ownerId: projection.outerId,
     });
   }
-  for (const [id, node] of ghostNodes) {
-    searchEntries.push({
-      id,
-      label: node.name,
-      aliases: node.aliases ? [...node.aliases] : [],
-      hiddenInternal: false,
-      ownerId: id,
-    });
-  }
-
   const relationships: RenderRelationship[] = [];
   if (options.showRelationships) {
     for (const relationship of relationshipValues(chart, diff)) {
       const source = visibleAnchors.get(relationship.source) ?? relationship.source;
       const target = visibleAnchors.get(relationship.target) ?? relationship.target;
-      if ((!projections.has(source) && !ghostNodes.has(source)) || (!projections.has(target) && !ghostNodes.has(target))) {
+      if (!projections.has(source) || !projections.has(target)) {
         continue;
       }
       const aggregated = source !== relationship.source || target !== relationship.target;

@@ -29,6 +29,7 @@ describe('TaxonomyRenderer', () => {
   afterEach(() => {
     document.body.replaceChildren();
     vi.unstubAllGlobals();
+    delete (Element.prototype as unknown as { animate?: unknown }).animate;
   });
 
   it('converts transformed card geometry back to world connector coordinates', () => {
@@ -40,7 +41,7 @@ describe('TaxonomyRenderer', () => {
     )).toEqual({ x: 20, y: 15 });
   });
 
-  it('renders complete baseline and proposed cards in shared tier rows with taxonomy columns', () => {
+  it('renders one selected chart in taxonomy rows with column headings', () => {
     const host = document.createElement('div');
     document.body.append(host);
     const renderer = new TaxonomyRenderer(host, { onActivate: vi.fn() });
@@ -48,26 +49,64 @@ describe('TaxonomyRenderer', () => {
     renderer.render(comparisonView());
 
     expect(host.querySelectorAll('[data-taxonomy-tier]')).toHaveLength(3);
-    expect(host.querySelectorAll('[data-view-side="baseline"][data-node-id]')).toHaveLength(8);
+    expect(host.querySelectorAll('[data-view-side="baseline"][data-node-id]')).toHaveLength(0);
     expect(host.querySelectorAll('[data-view-side="proposed"][data-node-id]')).toHaveLength(6);
-    expect(host.querySelector('[data-taxonomy-system="army-echelon"]')?.textContent)
-      .toContain('Army echelon');
-    expect(host.querySelector('[data-taxonomy-level="air-division"]')?.textContent)
-      .toContain('Air Division');
-    expect(host.querySelector('[data-node-id="air-division-a"]')?.textContent)
-      .toContain('Commander');
+    expect(host.querySelectorAll('[data-taxonomy-system-heading="army-echelon"]'))
+      .toHaveLength(1);
+    expect(host.querySelector('[data-taxonomy-system-heading="army-echelon"]')?.textContent)
+      .toBe('Army echelon');
+    expect([...host.querySelectorAll('[data-taxonomy-system="army-echelon"]')]
+      .every((cell) => !cell.textContent?.includes('Army echelon'))).toBe(true);
+    expect(host.querySelector('[data-taxonomy-level="air-division"]')).toBeNull();
+    expect(host.querySelector('[data-node-id="air-division-a"]')).toBeNull();
     expect(host.querySelector('[data-view-side="proposed"] [data-node-id="naf-a"]')?.textContent)
       .toContain('Deputy Commander');
     expect(host.querySelectorAll('[data-taxonomy-hierarchy][data-view-side="baseline"]'))
-      .toHaveLength(5);
+      .toHaveLength(0);
     expect(host.querySelectorAll('[data-taxonomy-hierarchy][data-view-side="proposed"]'))
       .toHaveLength(3);
-    expect(host.querySelector('[data-taxonomy-movement="naf-a"]')).not.toBeNull();
+    expect(host.querySelector('[data-taxonomy-movement="naf-a"]')).toBeNull();
     const hierarchyConnector = [...host.querySelectorAll<SVGPathElement>(
-      '[data-taxonomy-hierarchy][data-view-side="baseline"]',
-    )].find((path) => path.dataset.activateId?.includes('air-division-a'));
+      '[data-taxonomy-hierarchy][data-view-side="proposed"]',
+    )].find((path) => path.dataset.activateId?.includes('wing-a'));
     expect(hierarchyConnector?.getAttribute('aria-label')).toBe(
-      'Example Numbered Air Force A subordinate relationship to Example Air Division A',
+      'Example Numbered Air Force A subordinate relationship to Example Wing A',
+    );
+  });
+
+  it('animates retained and entering cards with configured motion after initial render', () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
+    const animate = vi.fn(() => ({ cancel: vi.fn() }) as unknown as Animation);
+    Object.defineProperty(Element.prototype, 'animate', { configurable: true, value: animate });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const renderer = new TaxonomyRenderer(host, {
+      onActivate: vi.fn(),
+      transitionDurationMs: 900,
+    });
+    renderer.render(comparisonView());
+    expect(animate).not.toHaveBeenCalled();
+    const oldWorld = host.querySelector('.org-delta-taxonomy-world');
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const old = this.closest('.org-delta-taxonomy-world') === oldWorld;
+      const left = this.dataset.nodeId === 'naf-a' ? (old ? 20 : 120) : 0;
+      return new DOMRect(left, 20, 100, 50);
+    });
+
+    renderer.render(comparisonView(false));
+
+    expect(animate).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ transform: expect.stringContaining('translate') })]),
+      expect.objectContaining({ duration: 900 }),
+    );
+    expect(animate).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          opacity: 0,
+          transform: expect.stringContaining('translate'),
+        }),
+      ]),
+      expect.objectContaining({ duration: 900 }),
     );
   });
 
@@ -113,30 +152,56 @@ describe('TaxonomyRenderer', () => {
     expect(host.querySelectorAll('[data-view-side="proposed"][data-node-id]')).toHaveLength(8);
   });
 
-  it('activates duplicate cards with their baseline or proposed context', () => {
+  it('places children in ordered slots and centers their parent over the span', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const renderer = new TaxonomyRenderer(host, { onActivate: vi.fn() });
+    renderer.render({
+      tiers: [
+        { id: 'top', kind: 'unchanged', proposed: { id: 'top', label: 'Top' } },
+        { id: 'lower', kind: 'unchanged', proposed: { id: 'lower', label: 'Lower' } },
+      ],
+      proposed: {
+        systems: [],
+        nodes: [
+          { id: 'root', name: 'Root', tierId: 'top', internal: false, diffKind: 'unchanged' },
+          { id: 'left', name: 'Left', parentId: 'root', parentName: 'Root', tierId: 'lower', internal: false, diffKind: 'unchanged' },
+          { id: 'right', name: 'Right', parentId: 'root', parentName: 'Root', tierId: 'lower', internal: false, diffKind: 'unchanged' },
+        ],
+        relationships: [],
+        searchEntries: [],
+      },
+      movements: [],
+      searchEntries: [],
+      initialExpansionIds: ['root'],
+    });
+
+    const left = host.querySelector<HTMLElement>('[data-node-id="left"]')!;
+    const right = host.querySelector<HTMLElement>('[data-node-id="right"]')!;
+    const root = host.querySelector<HTMLElement>('[data-node-id="root"]')!;
+    const leftX = Number.parseFloat(left.style.left);
+    const rightX = Number.parseFloat(right.style.left);
+    const rootX = Number.parseFloat(root.style.left);
+    expect(rightX).toBeGreaterThan(leftX);
+    expect(rootX + 125).toBe((leftX + 125 + rightX + 125) / 2);
+    expect(host.querySelector('[data-taxonomy-toggle="root"]')?.innerHTML)
+      .toContain('org-delta-expansion-chevron--expanded');
+  });
+
+  it('activates the selected card with proposed context', () => {
     const host = document.createElement('div');
     document.body.append(host);
     const onActivate = vi.fn();
     const renderer = new TaxonomyRenderer(host, { onActivate });
     renderer.render(comparisonView());
 
-    host.querySelector<HTMLElement>(
-      '[data-view-side="baseline"][data-node-id="naf-a"] [data-activate-kind="node"]',
-    )!.click();
     const proposed = host.querySelector<HTMLElement>(
       '[data-view-side="proposed"][data-node-id="naf-a"] [data-activate-kind="node"]',
     )!;
     proposed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 
-    expect(onActivate).toHaveBeenNthCalledWith(
-      1,
-      'node',
-      'naf-a',
-      expect.any(HTMLElement),
-      { side: 'baseline' },
-    );
-    expect(onActivate).toHaveBeenNthCalledWith(
-      2,
+    expect(onActivate).toHaveBeenCalledOnce();
+    expect(onActivate).toHaveBeenCalledWith(
       'node',
       'naf-a',
       proposed,
@@ -144,13 +209,13 @@ describe('TaxonomyRenderer', () => {
     );
   });
 
-  it('reveals both counterparts and exposes separately labeled semantic trees', () => {
+  it('reveals a selected node and exposes one semantic tree', () => {
     const host = document.createElement('div');
     document.body.append(host);
     const renderer = new TaxonomyRenderer(host, { onActivate: vi.fn() });
     renderer.render(comparisonView());
     const toggle = host.querySelector<HTMLButtonElement>(
-      '[data-view-side="baseline"] [data-taxonomy-toggle="naf-a"]',
+      '[data-view-side="proposed"] [data-taxonomy-toggle="naf-a"]',
     )!;
     toggle.focus();
     toggle.click();
@@ -159,35 +224,35 @@ describe('TaxonomyRenderer', () => {
     renderer.reveal('wing-a');
 
     expect(host.querySelectorAll('[data-node-id="wing-a"].org-delta-taxonomy-card--revealed'))
-      .toHaveLength(2);
-    expect(host.querySelectorAll('[role="tree"][aria-label="Baseline organization tree"]'))
       .toHaveLength(1);
+    expect(host.querySelectorAll('[role="tree"][aria-label="Baseline organization tree"]'))
+      .toHaveLength(0);
     expect(host.querySelectorAll('[role="tree"][aria-label="Proposed organization tree"]'))
       .toHaveLength(1);
     expect(host.querySelectorAll('[role="treeitem"][data-activate-id="wing-a"]'))
-      .toHaveLength(2);
+      .toHaveLength(1);
   });
 
-  it('synchronizes expansion across both comparison halves', () => {
+  it('preserves focus after selected-chart expansion', () => {
     const host = document.createElement('div');
     document.body.append(host);
     const renderer = new TaxonomyRenderer(host, { onActivate: vi.fn() });
     renderer.render(comparisonView());
 
     const toggle = host.querySelector<HTMLButtonElement>(
-      '[data-view-side="baseline"] [data-taxonomy-toggle="naf-a"]',
+      '[data-view-side="proposed"] [data-taxonomy-toggle="naf-a"]',
     )!;
     toggle.focus();
     toggle.click();
 
     expect(host.querySelectorAll('[data-node-id="wing-a"]')).toHaveLength(0);
     expect(host.querySelectorAll('[data-taxonomy-toggle="naf-a"][aria-expanded="false"]'))
-      .toHaveLength(2);
+      .toHaveLength(1);
     expect((document.activeElement as HTMLElement).dataset.taxonomyToggle).toBe('naf-a');
-    expect((document.activeElement as HTMLElement).dataset.viewSide).toBe('baseline');
+    expect((document.activeElement as HTMLElement).dataset.viewSide).toBe('proposed');
   });
 
-  it('exposes expansion only on sides that contain children', () => {
+  it('omits expansion when the selected node has no children', () => {
     const source = comparisonView();
     const view = {
       ...source,
@@ -206,9 +271,7 @@ describe('TaxonomyRenderer', () => {
 
     renderer.render(view);
 
-    expect(host.querySelectorAll(
-      '[data-view-side="baseline"] [data-taxonomy-toggle="naf-a"]',
-    )).toHaveLength(1);
+    expect(host.querySelectorAll('[data-view-side="baseline"]')).toHaveLength(0);
     expect(host.querySelectorAll(
       '[data-view-side="proposed"] [data-taxonomy-toggle="naf-a"]',
     )).toHaveLength(0);
@@ -296,21 +359,21 @@ describe('TaxonomyRenderer', () => {
     bounds.mockRestore();
   });
 
-  it('keeps the paired tier grid intact at mobile widths', () => {
+  it('keeps the tier grid intact at mobile widths', () => {
     expect(componentStyles).toContain('.org-delta-taxonomy-tier { display: grid;');
-    expect(componentStyles).toContain("[data-taxonomy-comparison='true'] .org-delta-taxonomy-tier");
+    expect(componentStyles).toContain("[data-taxonomy-comparison='false'] .org-delta-taxonomy-tier");
     expect(componentStyles).toContain('grid-template-columns: subgrid');
     expect(componentStyles).toContain('touch-action: none');
     expect(componentStyles).not.toContain('org-delta-taxonomy-tier { display: block');
   });
 
-  it('supports roving arrow navigation in each semantic tree', () => {
+  it('supports roving arrow navigation in the selected semantic tree', () => {
     const host = document.createElement('div');
     document.body.append(host);
     const renderer = new TaxonomyRenderer(host, { onActivate: vi.fn() });
     renderer.render(comparisonView());
     const items = host.querySelectorAll<HTMLElement>(
-      '[aria-label="Baseline organization tree"] [role="treeitem"]',
+      '[aria-label="Proposed organization tree"] [role="treeitem"]',
     );
     items[0]!.focus();
 
@@ -327,22 +390,22 @@ describe('TaxonomyRenderer', () => {
     const leaf = [...items].find((item) => item.dataset.activateId === 'wing-a')!;
     leaf.focus();
     leaf.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
-    expect((document.activeElement as HTMLElement).dataset.activateId).toBe('air-division-a');
+    expect((document.activeElement as HTMLElement).dataset.activateId).toBe('naf-a');
   });
 
-  it('synchronizes keyboard expansion from either semantic tree', () => {
+  it('supports keyboard expansion in the selected semantic tree', () => {
     const host = document.createElement('div');
     document.body.append(host);
     const renderer = new TaxonomyRenderer(host, { onActivate: vi.fn() });
     renderer.render(comparisonView());
     const item = host.querySelector<HTMLElement>(
-      '[aria-label="Baseline organization tree"] [data-activate-id="naf-a"]',
+      '[aria-label="Proposed organization tree"] [data-activate-id="naf-a"]',
     )!;
 
     item.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
 
     expect(host.querySelectorAll('[data-node-id="wing-a"]')).toHaveLength(0);
     expect(host.querySelectorAll('[role="treeitem"][data-activate-id="naf-a"][aria-expanded="false"]'))
-      .toHaveLength(2);
+      .toHaveLength(1);
   });
 });

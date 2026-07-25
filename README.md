@@ -241,6 +241,8 @@ Nodes, hierarchy edges, proposals, patch groups, patches, relationships, and zon
 }
 ```
 
+Hovering or focusing an organization card shows a noninteractive provenance tooltip with the node note, source labels, and current parent-assignment provenance. Activating the card opens the full details surface, where source URLs remain clickable.
+
 Cross-links live in `relationships` and are rendered separately from hierarchy:
 
 ```json
@@ -252,6 +254,16 @@ Cross-links live in `relationships` and are rendered separately from hierarchy:
   "label": "Shared-leadership-style cross-link"
 }
 ```
+
+## Historical Renderer Example
+
+The renderer-review fixture follows a working reconstruction of Regular Air Force wings assigned to Strategic Air Command or Tactical Air Command into the initial June 1992 Air Combat Command and Air Mobility Command structure. It is available in both renderer modes over the same canonical document:
+
+- Depth: `/examples/1992-reorganization-depth.html`
+- Taxonomy: `/examples/1992-reorganization-taxonomy.html`
+- Data: `/examples/1992-air-force-reorganization.json`
+
+The fixture combines documented relationships from the final reorganization period rather than claiming a precise single-day order of battle. Its source method, inclusion rules, effective-date caveats, and unresolved lineage cross-checks are recorded in `docs/research/1992-air-force-reorganization.md`. The example is an accepted renderer demo, not the later comprehensive Air Force acceptance fixture.
 
 ## Reader Controls And Accessibility
 

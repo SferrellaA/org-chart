@@ -1,0 +1,198 @@
+{
+  "$schema": "https://org-delta-chart.dev/schema/org-delta-chart.schema.json",
+  "title": "1992 U.S. Air Force command reorganization (working reconstruction)",
+  "nodes": {
+    "sac": {
+      "name": "Strategic Air Command",
+      "note": "Representative pre-reorganization root. SAC was inactivated on 1 June 1992; combat, reconnaissance, and missile forces moved to ACC while tanker forces moved principally to AMC.",
+      "sources": [{ "label": "ACC History", "url": "https://www.acc.af.mil/About-Us/ACC-History/" }],
+      "taxonomyAssignments": { "usaf-echelon": "major-command" }
+    },
+    "tac": {
+      "name": "Tactical Air Command",
+      "note": "Representative pre-reorganization root. TAC was inactivated and Air Combat Command activated on 1 June 1992.",
+      "sources": [{ "label": "AFHRA Air Combat Command lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432046/air-combat-command-usaf/" }],
+      "taxonomyAssignments": { "usaf-echelon": "major-command" }
+    },
+    "acc": {
+      "name": "Air Combat Command",
+      "note": "Activated on 1 June 1992 to integrate TAC forces with most SAC combat resources.",
+      "sources": [{ "label": "AFHRA Air Combat Command lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432046/air-combat-command-usaf/" }],
+      "taxonomyAssignments": { "usaf-echelon": "major-command" }
+    },
+    "amc": {
+      "name": "Air Mobility Command",
+      "note": "Activated on 1 June 1992 from Military Airlift Command and SAC tanker resources. Only former SAC wings in the tracked cohort appear here.",
+      "sources": [{ "label": "AFHRA Air Mobility Command lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/968648/air-mobility-command/" }],
+      "taxonomyAssignments": { "usaf-echelon": "major-command" }
+    },
+    "first-af": {
+      "name": "First Air Force",
+      "note": "TAC numbered air force transferred to ACC in the 1992 reorganization.",
+      "sources": [{ "label": "AFHRA Air Combat Command lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432046/air-combat-command-usaf/" }],
+      "taxonomyAssignments": { "usaf-echelon": "numbered-air-force" }
+    },
+    "second-af": {
+      "name": "Second Air Force",
+      "note": "SAC numbered air force transferred to ACC on 1 June 1992 and initially concentrated strategic reconnaissance forces.",
+      "sources": [{ "label": "AFHRA Air Combat Command lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432046/air-combat-command-usaf/" }],
+      "taxonomyAssignments": { "usaf-echelon": "numbered-air-force" }
+    },
+    "eighth-af": {
+      "name": "Eighth Air Force",
+      "note": "SAC numbered air force transferred to ACC on 1 June 1992. This working reconstruction retains the late SAC bomber grouping for comparison clarity.",
+      "sources": [{ "label": "AFHRA Air Combat Command lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432046/air-combat-command-usaf/" }],
+      "taxonomyAssignments": { "usaf-echelon": "numbered-air-force" }
+    },
+    "ninth-af": {
+      "name": "Ninth Air Force",
+      "note": "TAC numbered air force transferred to ACC in the 1992 reorganization.",
+      "sources": [{ "label": "AFHRA Air Combat Command lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432046/air-combat-command-usaf/" }],
+      "taxonomyAssignments": { "usaf-echelon": "numbered-air-force" }
+    },
+    "twelfth-af": {
+      "name": "Twelfth Air Force",
+      "note": "TAC numbered air force transferred to ACC on 1 June 1992.",
+      "sources": [{ "label": "AFHRA Twelfth Air Force lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432165/twelfth-air-force-air-forces-southern-acc/" }],
+      "taxonomyAssignments": { "usaf-echelon": "numbered-air-force" }
+    },
+    "fifteenth-af": {
+      "name": "Fifteenth Air Force",
+      "note": "SAC numbered air force transferred to AMC on 1 June 1992. This chart shows only former SAC tanker wings in the tracked cohort.",
+      "sources": [{ "label": "AFHRA Air Mobility Command lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/968648/air-mobility-command/" }],
+      "taxonomyAssignments": { "usaf-echelon": "numbered-air-force" }
+    },
+    "twentieth-af": {
+      "name": "Twentieth Air Force",
+      "note": "SAC numbered air force transferred to ACC on 1 June 1992 with the intercontinental ballistic missile force.",
+      "sources": [{ "label": "AFHRA Air Combat Command lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432046/air-combat-command-usaf/" }],
+      "taxonomyAssignments": { "usaf-echelon": "numbered-air-force" }
+    },
+    "28-ad": {
+      "name": "28th Air Division",
+      "note": "Final TAC Air Division layer shown in this reconstruction. It was inactivated on 29 May 1992, immediately before ACC activation.",
+      "sources": [{ "label": "552nd Air Control Wing Heritage Pamphlet", "url": "https://www.552acw.acc.af.mil/Portals/109/Docs/AFD-101209-036.pdf" }],
+      "taxonomyAssignments": { "usaf-echelon": "air-division" }
+    },
+    "9-rw": { "name": "9th Reconnaissance Wing", "note": "Former SAC reconnaissance wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "55-srw": { "name": "55th Strategic Reconnaissance Wing", "note": "Former SAC strategic reconnaissance wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "2-bw": { "name": "2d Bomb Wing", "note": "Former SAC bomber wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "5-bw": { "name": "5th Bomb Wing", "note": "Former SAC bomber wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "7-bw": { "name": "7th Bomb Wing", "note": "Former SAC bomber wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "28-bw": { "name": "28th Bomb Wing", "note": "Former SAC bomber wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "42-bw": { "name": "42d Bomb Wing", "note": "Former SAC bomber wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "92-bw": { "name": "92d Bomb Wing", "note": "Former SAC bomber wing tracked into ACC. Initial NAF placement is simplified in this working reconstruction.", "sources": [{ "label": "AFHRA Twelfth Air Force lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432165/twelfth-air-force-air-forces-southern-acc/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "93-wing": { "name": "93d Wing", "note": "Former SAC wing tracked into ACC. Initial NAF placement is simplified in this working reconstruction.", "sources": [{ "label": "AFHRA Twelfth Air Force lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432165/twelfth-air-force-air-forces-southern-acc/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "96-wing": { "name": "96th Wing", "note": "Former SAC wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "319-bw": { "name": "319th Bomb Wing", "note": "Former SAC wing tracked into ACC before its later transfer to AMC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "379-wing": { "name": "379th Wing", "note": "Former SAC wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "384-bw": { "name": "384th Bomb Wing", "note": "Former SAC bomber wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "410-wing": { "name": "410th Wing", "note": "Former SAC wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "416-wing": { "name": "416th Wing", "note": "Former SAC wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "509-bw": { "name": "509th Bomb Wing", "note": "Former SAC bomber wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "19-arw": { "name": "19th Air Refueling Wing", "note": "Former SAC tanker wing tracked into AMC.", "sources": [{ "label": "AFHRA Air Mobility Command lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/968648/air-mobility-command/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "22-arw": { "name": "22d Air Refueling Wing", "note": "Former SAC tanker wing tracked into AMC.", "sources": [{ "label": "AFHRA Air Mobility Command lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/968648/air-mobility-command/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "301-arw": { "name": "301st Air Refueling Wing", "note": "Former SAC tanker wing tracked into AMC; redesignation details remain to be reflected after lineage cross-checking.", "sources": [{ "label": "AFHRA Air Mobility Command lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/968648/air-mobility-command/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "305-arw": { "name": "305th Air Refueling Wing", "note": "Former SAC tanker wing tracked into AMC.", "sources": [{ "label": "AFHRA Air Mobility Command lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/968648/air-mobility-command/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "340-arw": { "name": "340th Air Refueling Wing", "note": "Former SAC tanker wing tracked into AMC.", "sources": [{ "label": "AFHRA Air Mobility Command lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/968648/air-mobility-command/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "380-arw": { "name": "380th Air Refueling Wing", "note": "Former SAC tanker wing tracked into AMC.", "sources": [{ "label": "AFHRA Air Mobility Command lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/968648/air-mobility-command/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "44-mw": { "name": "44th Missile Wing", "note": "Former SAC missile wing tracked into ACC's Twentieth Air Force.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "90-mw": { "name": "90th Missile Wing", "note": "Former SAC missile wing tracked into ACC's Twentieth Air Force.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "91-mw": { "name": "91st Missile Wing", "note": "Former SAC missile wing tracked into ACC's Twentieth Air Force.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "321-mw": { "name": "321st Missile Wing", "note": "Former SAC missile wing tracked into ACC's Twentieth Air Force.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "341-mw": { "name": "341st Missile Wing", "note": "Former SAC missile wing tracked into ACC's Twentieth Air Force.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "351-mw": { "name": "351st Missile Wing", "note": "Former SAC missile wing tracked into ACC's Twentieth Air Force.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "325-fw": { "name": "325th Fighter Wing", "note": "Former TAC fighter wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "1-fw": { "name": "1st Fighter Wing", "note": "Former TAC fighter wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "4-fw": { "name": "4th Fighter Wing", "note": "Former TAC fighter wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "23-fw": { "name": "23d Fighter Wing", "note": "Former TAC fighter wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "31-fw": { "name": "31st Fighter Wing", "note": "Former TAC fighter wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "33-fw": { "name": "33d Fighter Wing", "note": "Former TAC fighter wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "56-fw": { "name": "56th Fighter Wing", "note": "Former TAC fighter wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "347-fw": { "name": "347th Fighter Wing", "note": "Former TAC fighter wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "354-fw": { "name": "354th Fighter Wing", "note": "Former TAC fighter wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "363-fw": { "name": "363d Fighter Wing", "note": "Former TAC fighter wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "507-acw": { "name": "507th Air Control Wing", "note": "Former TAC air control wing tracked into ACC.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "27-fw": { "name": "27th Fighter Wing", "note": "Former TAC fighter wing assigned to Twelfth Air Force through the command transition.", "sources": [{ "label": "AFHRA Twelfth Air Force lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432165/twelfth-air-force-air-forces-southern-acc/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "35-fw": { "name": "35th Fighter Wing", "note": "Former TAC fighter wing assigned to Twelfth Air Force through the command transition.", "sources": [{ "label": "AFHRA Twelfth Air Force lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432165/twelfth-air-force-air-forces-southern-acc/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "37-fw": { "name": "37th Fighter Wing", "note": "Former TAC fighter wing assigned to Twelfth Air Force through the command transition.", "sources": [{ "label": "AFHRA Twelfth Air Force lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432165/twelfth-air-force-air-forces-southern-acc/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "49-fw": { "name": "49th Fighter Wing", "note": "Former TAC fighter wing assigned to Twelfth Air Force through the command transition.", "sources": [{ "label": "AFHRA Twelfth Air Force lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432165/twelfth-air-force-air-forces-southern-acc/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "58-fw": { "name": "58th Fighter Wing", "note": "Former TAC fighter wing assigned to Twelfth Air Force through the command transition.", "sources": [{ "label": "AFHRA Twelfth Air Force lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432165/twelfth-air-force-air-forces-southern-acc/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "67-rw": { "name": "67th Reconnaissance Wing", "note": "Former TAC reconnaissance wing assigned to Twelfth Air Force through the command transition.", "sources": [{ "label": "AFHRA Twelfth Air Force lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432165/twelfth-air-force-air-forces-southern-acc/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "355-fw": { "name": "355th Fighter Wing", "note": "Former TAC fighter wing assigned to Twelfth Air Force through the command transition.", "sources": [{ "label": "AFHRA Twelfth Air Force lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432165/twelfth-air-force-air-forces-southern-acc/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "366-fw": { "name": "366th Fighter Wing", "note": "Former TAC fighter wing assigned to Twelfth Air Force through the command transition.", "sources": [{ "label": "AFHRA Twelfth Air Force lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432165/twelfth-air-force-air-forces-southern-acc/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "388-fw": { "name": "388th Fighter Wing", "note": "Former TAC fighter wing assigned to Twelfth Air Force through the command transition.", "sources": [{ "label": "AFHRA Twelfth Air Force lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432165/twelfth-air-force-air-forces-southern-acc/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "602-acw": { "name": "602d Air Control Wing", "note": "Former TAC air control wing tracked into ACC; exact pre-transition parent remains under review.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "552-acw": { "name": "552d Air Control Wing", "note": "Assigned to the 28th Air Division until 29 May 1992, then directly to TAC and to ACC on 1 June 1992.", "sources": [{ "label": "AFHRA 552 Air Control Wing lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432944/552-air-control-wing-acc/" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "53-wing": { "name": "53d Wing", "note": "Former TAC wing tracked into ACC; direct-reporting placement remains under review.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "57-fw": { "name": "57th Fighter Wing", "note": "Former TAC fighter wing tracked into ACC; direct-reporting placement remains under review.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } },
+    "85-wing": { "name": "85th Wing", "note": "Former TAC wing tracked into ACC; direct-reporting placement remains under review.", "sources": [{ "label": "ACC predecessor roster index", "url": "https://en.wikipedia.org/wiki/Air_Combat_Command#Predecessor_units_merged_into_Air_Combat_Command_1992" }], "taxonomyAssignments": { "usaf-echelon": "wing" } }
+  },
+  "snapshots": [
+    {
+      "id": "pre-reorganization",
+      "label": "Representative pre-reorganization structure",
+      "nodes": {
+        "sac": {}, "tac": {}, "first-af": {}, "second-af": {}, "eighth-af": {}, "ninth-af": {}, "twelfth-af": {}, "fifteenth-af": {}, "twentieth-af": {}, "28-ad": {},
+        "9-rw": {}, "55-srw": {}, "2-bw": {}, "5-bw": {}, "7-bw": {}, "28-bw": {}, "42-bw": {}, "92-bw": {}, "93-wing": {}, "96-wing": {}, "319-bw": {}, "379-wing": {}, "384-bw": {}, "410-wing": {}, "416-wing": {}, "509-bw": {},
+        "19-arw": {}, "22-arw": {}, "301-arw": {}, "305-arw": {}, "340-arw": {}, "380-arw": {},
+        "44-mw": {}, "90-mw": {}, "91-mw": {}, "321-mw": {}, "341-mw": {}, "351-mw": {},
+        "325-fw": {}, "1-fw": {}, "4-fw": {}, "23-fw": {}, "31-fw": {}, "33-fw": {}, "56-fw": {}, "347-fw": {}, "354-fw": {}, "363-fw": {}, "507-acw": {},
+        "27-fw": {}, "35-fw": {}, "37-fw": {}, "49-fw": {}, "58-fw": {}, "67-rw": {}, "355-fw": {}, "366-fw": {}, "388-fw": {}, "602-acw": {}, "552-acw": {}, "53-wing": {}, "57-fw": {}, "85-wing": {}
+      },
+      "hierarchy": [
+        { "child": "second-af", "parent": "sac", "relationship": "subordinate", "note": "Representative final SAC reconnaissance grouping.", "sources": [{ "label": "AFHRA ACC lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432046/air-combat-command-usaf/" }] },
+        { "child": "eighth-af", "parent": "sac", "relationship": "subordinate", "note": "Representative final SAC bomber grouping.", "sources": [{ "label": "AFHRA ACC lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432046/air-combat-command-usaf/" }] },
+        { "child": "fifteenth-af", "parent": "sac", "relationship": "subordinate", "note": "Representative final SAC tanker grouping.", "sources": [{ "label": "AFHRA AMC lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/968648/air-mobility-command/" }] },
+        { "child": "twentieth-af", "parent": "sac", "relationship": "subordinate", "note": "Representative final SAC missile grouping.", "sources": [{ "label": "AFHRA ACC lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432046/air-combat-command-usaf/" }] },
+        { "child": "first-af", "parent": "tac", "relationship": "subordinate", "sources": [{ "label": "AFHRA ACC lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432046/air-combat-command-usaf/" }] },
+        { "child": "ninth-af", "parent": "tac", "relationship": "subordinate", "sources": [{ "label": "AFHRA ACC lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432046/air-combat-command-usaf/" }] },
+        { "child": "twelfth-af", "parent": "tac", "relationship": "subordinate", "sources": [{ "label": "AFHRA Twelfth Air Force lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432165/twelfth-air-force-air-forces-southern-acc/" }] },
+        { "child": "28-ad", "parent": "tac", "relationship": "subordinate", "note": "The 28th Air Division was inactivated on 29 May 1992.", "sources": [{ "label": "552d Air Control Wing Heritage Pamphlet", "url": "https://www.552acw.acc.af.mil/Portals/109/Docs/AFD-101209-036.pdf" }] },
+        { "child": "53-wing", "parent": "tac", "relationship": "subordinate" }, { "child": "57-fw", "parent": "tac", "relationship": "subordinate" }, { "child": "85-wing", "parent": "tac", "relationship": "subordinate" },
+        { "child": "9-rw", "parent": "second-af", "relationship": "subordinate" }, { "child": "55-srw", "parent": "second-af", "relationship": "subordinate" },
+        { "child": "2-bw", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "5-bw", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "7-bw", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "28-bw", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "42-bw", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "92-bw", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "93-wing", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "96-wing", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "319-bw", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "379-wing", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "384-bw", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "410-wing", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "416-wing", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "509-bw", "parent": "eighth-af", "relationship": "subordinate" },
+        { "child": "19-arw", "parent": "fifteenth-af", "relationship": "subordinate" }, { "child": "22-arw", "parent": "fifteenth-af", "relationship": "subordinate" }, { "child": "301-arw", "parent": "fifteenth-af", "relationship": "subordinate" }, { "child": "305-arw", "parent": "fifteenth-af", "relationship": "subordinate" }, { "child": "340-arw", "parent": "fifteenth-af", "relationship": "subordinate" }, { "child": "380-arw", "parent": "fifteenth-af", "relationship": "subordinate" },
+        { "child": "44-mw", "parent": "twentieth-af", "relationship": "subordinate" }, { "child": "90-mw", "parent": "twentieth-af", "relationship": "subordinate" }, { "child": "91-mw", "parent": "twentieth-af", "relationship": "subordinate" }, { "child": "321-mw", "parent": "twentieth-af", "relationship": "subordinate" }, { "child": "341-mw", "parent": "twentieth-af", "relationship": "subordinate" }, { "child": "351-mw", "parent": "twentieth-af", "relationship": "subordinate" },
+        { "child": "325-fw", "parent": "first-af", "relationship": "subordinate" },
+        { "child": "1-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "4-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "23-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "31-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "33-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "56-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "347-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "354-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "363-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "507-acw", "parent": "ninth-af", "relationship": "subordinate" },
+        { "child": "27-fw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "35-fw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "37-fw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "49-fw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "58-fw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "67-rw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "355-fw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "366-fw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "388-fw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "602-acw", "parent": "twelfth-af", "relationship": "subordinate" },
+        { "child": "552-acw", "parent": "28-ad", "relationship": "subordinate", "note": "The wing was assigned to the 28th Air Division until the division inactivated on 29 May 1992.", "sources": [{ "label": "AFHRA 552 Air Control Wing lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432944/552-air-control-wing-acc/" }] }
+      ],
+      "taxonomy": {
+        "comparisonTiers": [{ "id": "majcom", "label": "Major command" }, { "id": "naf", "label": "Numbered air force" }, { "id": "air-division", "label": "Air division" }, { "id": "wing", "label": "Wing" }],
+        "systems": [{ "id": "usaf-echelon", "label": "USAF echelon", "levels": [{ "id": "major-command", "label": "Major command", "tier": "majcom" }, { "id": "numbered-air-force", "label": "Numbered air force", "tier": "naf" }, { "id": "air-division", "label": "Air division", "tier": "air-division" }, { "id": "wing", "label": "Wing", "tier": "wing" }] }]
+      }
+    },
+    {
+      "id": "june-1992",
+      "label": "Initial June 1992 command structure",
+      "nodes": {
+        "acc": {}, "amc": {}, "first-af": {}, "second-af": {}, "eighth-af": {}, "ninth-af": {}, "twelfth-af": {}, "fifteenth-af": {}, "twentieth-af": {},
+        "9-rw": {}, "55-srw": {}, "2-bw": {}, "5-bw": {}, "7-bw": {}, "28-bw": {}, "42-bw": {}, "92-bw": {}, "93-wing": {}, "96-wing": {}, "319-bw": {}, "379-wing": {}, "384-bw": {}, "410-wing": {}, "416-wing": {}, "509-bw": {},
+        "19-arw": {}, "22-arw": {}, "301-arw": {}, "305-arw": {}, "340-arw": {}, "380-arw": {},
+        "44-mw": {}, "90-mw": {}, "91-mw": {}, "321-mw": {}, "341-mw": {}, "351-mw": {},
+        "325-fw": {}, "1-fw": {}, "4-fw": {}, "23-fw": {}, "31-fw": {}, "33-fw": {}, "56-fw": {}, "347-fw": {}, "354-fw": {}, "363-fw": {}, "507-acw": {},
+        "27-fw": {}, "35-fw": {}, "37-fw": {}, "49-fw": {}, "58-fw": {}, "67-rw": {}, "355-fw": {}, "366-fw": {}, "388-fw": {}, "602-acw": {}, "552-acw": {}, "53-wing": {}, "57-fw": {}, "85-wing": {}
+      },
+      "hierarchy": [
+        { "child": "first-af", "parent": "acc", "relationship": "subordinate" }, { "child": "second-af", "parent": "acc", "relationship": "subordinate" }, { "child": "eighth-af", "parent": "acc", "relationship": "subordinate" }, { "child": "ninth-af", "parent": "acc", "relationship": "subordinate" }, { "child": "twelfth-af", "parent": "acc", "relationship": "subordinate" }, { "child": "twentieth-af", "parent": "acc", "relationship": "subordinate" },
+        { "child": "fifteenth-af", "parent": "amc", "relationship": "subordinate", "note": "Fifteenth Air Force transferred to AMC with the tanker mission.", "sources": [{ "label": "AFHRA Air Mobility Command lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/968648/air-mobility-command/" }] },
+        { "child": "53-wing", "parent": "acc", "relationship": "subordinate" }, { "child": "57-fw", "parent": "acc", "relationship": "subordinate" }, { "child": "85-wing", "parent": "acc", "relationship": "subordinate" }, { "child": "552-acw", "parent": "acc", "relationship": "subordinate", "note": "The 552d Air Control Wing transferred from TAC to ACC on 1 June 1992 after the 28th Air Division inactivated.", "sources": [{ "label": "AFHRA 552 Air Control Wing lineage", "url": "https://www.dafhistory.af.mil/About-Us/Fact-Sheets/Display/Article/432944/552-air-control-wing-acc/" }] },
+        { "child": "9-rw", "parent": "second-af", "relationship": "subordinate" }, { "child": "55-srw", "parent": "second-af", "relationship": "subordinate" },
+        { "child": "2-bw", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "5-bw", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "7-bw", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "28-bw", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "42-bw", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "92-bw", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "93-wing", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "96-wing", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "319-bw", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "379-wing", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "384-bw", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "410-wing", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "416-wing", "parent": "eighth-af", "relationship": "subordinate" }, { "child": "509-bw", "parent": "eighth-af", "relationship": "subordinate" },
+        { "child": "19-arw", "parent": "fifteenth-af", "relationship": "subordinate" }, { "child": "22-arw", "parent": "fifteenth-af", "relationship": "subordinate" }, { "child": "301-arw", "parent": "fifteenth-af", "relationship": "subordinate" }, { "child": "305-arw", "parent": "fifteenth-af", "relationship": "subordinate" }, { "child": "340-arw", "parent": "fifteenth-af", "relationship": "subordinate" }, { "child": "380-arw", "parent": "fifteenth-af", "relationship": "subordinate" },
+        { "child": "44-mw", "parent": "twentieth-af", "relationship": "subordinate" }, { "child": "90-mw", "parent": "twentieth-af", "relationship": "subordinate" }, { "child": "91-mw", "parent": "twentieth-af", "relationship": "subordinate" }, { "child": "321-mw", "parent": "twentieth-af", "relationship": "subordinate" }, { "child": "341-mw", "parent": "twentieth-af", "relationship": "subordinate" }, { "child": "351-mw", "parent": "twentieth-af", "relationship": "subordinate" },
+        { "child": "325-fw", "parent": "first-af", "relationship": "subordinate" },
+        { "child": "1-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "4-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "23-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "31-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "33-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "56-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "347-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "354-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "363-fw", "parent": "ninth-af", "relationship": "subordinate" }, { "child": "507-acw", "parent": "ninth-af", "relationship": "subordinate" },
+        { "child": "27-fw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "35-fw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "37-fw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "49-fw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "58-fw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "67-rw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "355-fw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "366-fw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "388-fw", "parent": "twelfth-af", "relationship": "subordinate" }, { "child": "602-acw", "parent": "twelfth-af", "relationship": "subordinate" }
+      ],
+      "taxonomy": {
+        "comparisonTiers": [{ "id": "majcom", "label": "Major command" }, { "id": "naf", "label": "Numbered air force" }, { "id": "wing", "label": "Wing" }],
+        "systems": [{ "id": "usaf-echelon", "label": "USAF echelon", "levels": [{ "id": "major-command", "label": "Major command", "tier": "majcom" }, { "id": "numbered-air-force", "label": "Numbered air force", "tier": "naf" }, { "id": "wing", "label": "Wing", "tier": "wing" }] }]
+      }
+    }
+  ],
+  "proposals": [],
+  "presentation": { "layoutMode": "depth", "initialExpansionDepth": 0, "focusNodes": ["acc", "amc"] }
+}

@@ -123,6 +123,7 @@ function projectSide(
   diff: ChartDiff,
   options: BuildTaxonomyRenderViewOptions,
   sharedTierOrder: readonly string[],
+  displayDiff = true,
 ): TaxonomyRenderSide {
   const authoredTierOrder = chart.taxonomy.comparisonTiers.map(({ id }) => id);
   const tierOrder = authoredTierOrder.length > 0 ? authoredTierOrder : sharedTierOrder;
@@ -152,7 +153,7 @@ function projectSide(
       tierId,
       internal: edge?.relationship === 'internal',
       ...(node.leadership ? { leadership: cloneLeadership(node.leadership)! } : {}),
-      diffKind: diff.nodes.get(id)?.kind ?? 'unchanged',
+      diffKind: displayDiff ? (diff.nodes.get(id)?.kind ?? 'unchanged') : 'unchanged',
     });
   }
   const visibleInternal = new Set<string>();
@@ -212,7 +213,9 @@ function projectSide(
         label: relationship.label,
         type: relationship.type,
         aggregated,
-        diffKind: diff.relationships.get(relationship.id)?.kind ?? 'unchanged',
+        diffKind: displayDiff
+          ? (diff.relationships.get(relationship.id)?.kind ?? 'unchanged')
+          : 'unchanged',
       });
     }
   }
@@ -235,47 +238,18 @@ function projectSide(
 }
 
 export function buildTaxonomyRenderView(
-  baseline: ResolvedChart,
+  _baseline: ResolvedChart,
   proposed: ResolvedChart,
   diff: ChartDiff,
   options: BuildTaxonomyRenderViewOptions,
 ): TaxonomyRenderView {
-  const baselineById = new Map(baseline.taxonomy.comparisonTiers.map((tier) => [tier.id, tier]));
-  const proposedById = new Map(proposed.taxonomy.comparisonTiers.map((tier) => [tier.id, tier]));
-  const baselineOrder = baseline.taxonomy.comparisonTiers.map(({ id }) => id);
   const order = proposed.taxonomy.comparisonTiers.map(({ id }) => id);
-
-  for (let baselineIndex = 0; baselineIndex < baselineOrder.length; baselineIndex += 1) {
-    const id = baselineOrder[baselineIndex]!;
-    if (proposedById.has(id)) continue;
-    const preceding = baselineOrder.slice(0, baselineIndex).reverse()
-      .find((candidate) => order.includes(candidate));
-    if (preceding !== undefined) {
-      order.splice(order.indexOf(preceding) + 1, 0, id);
-      continue;
-    }
-    const following = baselineOrder.slice(baselineIndex + 1)
-      .find((candidate) => order.includes(candidate));
-    order.splice(following === undefined ? order.length : order.indexOf(following), 0, id);
-  }
-
   const tiers = order.map((id) => ({
-      id,
-      kind: diff.taxonomy.comparisonTiers.get(id)?.kind ?? 'unchanged',
-      ...(baselineById.has(id) ? { baseline: baselineById.get(id)! } : {}),
-      ...(proposedById.has(id) ? { proposed: proposedById.get(id)! } : {}),
-    }));
-  const baselineSide = projectSide(baseline, diff, options, order);
-  const proposedSide = projectSide(proposed, diff, options, order);
-  const baselineNodes = new Map(baselineSide.nodes.map((node) => [node.id, node]));
-  const movements = options.comparison
-    ? proposedSide.nodes.flatMap((node) => {
-        const before = baselineNodes.get(node.id);
-        return before && before.tierId !== node.tierId
-          ? [{ nodeId: node.id, fromTierId: before.tierId, toTierId: node.tierId }]
-          : [];
-      })
-    : [];
+    id,
+    kind: 'unchanged' as const,
+    proposed: proposed.taxonomy.comparisonTiers.find((tier) => tier.id === id)!,
+  }));
+  const proposedSide = projectSide(proposed, diff, options, order, false);
   const initial = new Set<string>();
   const initialDepth = proposed.presentation.initialExpansionDepth ?? 2;
   const addInitialDepth = (chart: ResolvedChart, side: TaxonomyRenderSide): void => {
@@ -289,7 +263,6 @@ export function buildTaxonomyRenderView(
       if ((depth.get(node.id) ?? 0) <= initialDepth) initial.add(node.id);
     }
   };
-  if (options.comparison) addInitialDepth(baseline, baselineSide);
   addInitialDepth(proposed, proposedSide);
   const proposedNodes = new Map(proposedSide.nodes.map((node) => [node.id, node]));
   for (const focusId of proposed.presentation.focusNodes ?? []) {
@@ -302,19 +275,11 @@ export function buildTaxonomyRenderView(
       current = node?.connectorSourceId ?? node?.parentId;
     }
   }
-  const proposedSearchIds = new Set(proposedSide.searchEntries.map(({ id }) => id));
-  const searchEntries = options.comparison
-    ? [
-        ...proposedSide.searchEntries,
-        ...baselineSide.searchEntries.filter(({ id }) => !proposedSearchIds.has(id)),
-      ]
-    : proposedSide.searchEntries;
   return {
     tiers,
-    ...(options.comparison ? { baseline: baselineSide } : {}),
     proposed: proposedSide,
-    movements,
-    searchEntries,
+    movements: [],
+    searchEntries: proposedSide.searchEntries,
     initialExpansionIds: [...initial],
   };
 }

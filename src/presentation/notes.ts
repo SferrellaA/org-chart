@@ -1,4 +1,4 @@
-import type { LeadershipDiff, NodeDiff, RelationshipDiff } from '../model/diff';
+import type { DiffKind, LeadershipDiff, NodeChange, NodeDiff, RelationshipDiff } from '../model/diff';
 import type {
   LeadershipPosition,
   PatchGroup,
@@ -14,6 +14,7 @@ export interface DetailsItem {
   kindLabel: string;
   note?: string;
   leadership?: readonly string[];
+  change?: { kind: DiffKind; fields: readonly NodeChange[] };
   sources: readonly Source[];
 }
 
@@ -94,8 +95,12 @@ function isNodeDiff(change: NodeDiff | RelationshipDiff): change is NodeDiff {
   return Boolean((change.before && 'name' in change.before) || (change.after && 'name' in change.after));
 }
 
-export function nodeDetails(node: ResolvedNode): DetailsItem {
-  return details(node.name, 'Node', node.note, node.sources, leadershipLines(node.leadership));
+export function nodeDetails(node: ResolvedNode, change?: NodeDiff): DetailsItem {
+  const result = details(node.name, 'Node', node.note, node.sources, leadershipLines(node.leadership));
+  if (change && change.kind !== 'unchanged') {
+    result.change = { kind: change.kind, fields: [...change.changes] };
+  }
+  return result;
 }
 
 export function hierarchyDetails(

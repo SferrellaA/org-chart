@@ -57,12 +57,15 @@ async function settle(): Promise<void> {
 describe('OrgDeltaChartElement', () => {
   const renderers: FakeRenderer[] = [];
   const rendererModes: string[] = [];
+  const rendererDurations: number[] = [];
 
   beforeEach(() => {
     renderers.length = 0;
     rendererModes.length = 0;
-    setRendererFactoryForTests((_container, callbacks, mode) => {
+    rendererDurations.length = 0;
+    setRendererFactoryForTests((_container, callbacks, mode, transitionDurationMs) => {
       rendererModes.push(mode);
+      rendererDurations.push(transitionDurationMs);
       const renderer = new FakeRenderer(callbacks);
       renderers.push(renderer);
       return renderer;
@@ -110,6 +113,35 @@ describe('OrgDeltaChartElement', () => {
     })]);
   });
 
+  it('places all chart context in a controls sidebar with a focus-managed drawer', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(cloneValidDocument())));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+
+    const sidebar = element.shadowRoot!.querySelector<HTMLElement>('.controls-sidebar')!;
+    const toggle = element.shadowRoot!.querySelector<HTMLButtonElement>('[data-controls-toggle]')!;
+    const backdrop = element.shadowRoot!.querySelector<HTMLButtonElement>('[data-controls-backdrop]')!;
+    expect(sidebar.querySelector('h1')?.textContent).toBe('US government organizations');
+    expect(sidebar.querySelector('[data-selection-status]')).not.toBeNull();
+    expect(sidebar.querySelector('[role="status"]')).not.toBeNull();
+    expect(sidebar.querySelector('[data-fit]')).not.toBeNull();
+    expect(sidebar.querySelector('[data-search]')).not.toBeNull();
+
+    toggle.click();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(sidebar.dataset.open).toBe('true');
+    expect(backdrop.hidden).toBe(false);
+    expect(element.shadowRoot!.activeElement).toBe(sidebar);
+
+    sidebar.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(sidebar.dataset.open).toBeUndefined();
+    expect(backdrop.hidden).toBe(true);
+    expect(element.shadowRoot!.activeElement).toBe(toggle);
+  });
+
   it('uses the document taxonomy layout unless the component attribute overrides it', async () => {
     const chartDocument = taxonomyDocument();
     chartDocument.presentation = { layoutMode: 'taxonomy' };
@@ -121,20 +153,105 @@ describe('OrgDeltaChartElement', () => {
 
     await settle();
     expect(rendererModes).toEqual(['taxonomy']);
-    expect((renderers[0]!.views[0] as unknown as { baseline?: unknown }).baseline).toBeDefined();
+    expect((renderers[0]!.views[0] as unknown as { baseline?: unknown }).baseline).toBeUndefined();
 
     const trigger = document.createElement('button');
     element.shadowRoot!.querySelector('.canvas')!.append(trigger);
-    renderers[0]!.callbacks.onActivate('node', 'air-division-a', trigger, { side: 'baseline' });
-    expect(element.shadowRoot!.querySelector('aside')!.textContent).toContain('Example Air Division A');
-    expect(element.shadowRoot!.querySelector('aside')!.textContent).toContain('Commander');
+    renderers[0]!.callbacks.onActivate('node', 'naf-a', trigger, { side: 'proposed' });
+    expect(element.shadowRoot!.querySelector('aside.details')!.textContent).toContain('Example Numbered Air Force A');
+    expect(element.shadowRoot!.querySelector('aside.details')!.textContent).toContain('Deputy Commander');
     element.setAttribute('show-relationships', 'false');
-    expect(element.shadowRoot!.querySelector('aside')!.hidden).toBe(false);
-    expect(element.shadowRoot!.querySelector('aside')!.textContent).toContain('Commander');
+    expect(element.shadowRoot!.querySelector<HTMLElement>('aside.details')!.hidden).toBe(false);
+    expect(element.shadowRoot!.querySelector('aside.details')!.textContent).toContain('Deputy Commander');
 
     element.setAttribute('layout-mode', 'depth');
     expect(rendererModes).toEqual(['taxonomy', 'depth']);
     expect(renderers[0]!.destroyed).toBe(true);
+  });
+
+  it('configures renderer motion from attribute, document, and default precedence', async () => {
+    const configured = cloneValidDocument();
+    configured.presentation = { transitionDurationMs: 1200 };
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(response(configured))
+      .mockResolvedValueOnce(response(cloneValidDocument())));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/configured.json');
+    element.setAttribute('transition-duration', '450');
+    document.body.append(element);
+    await settle();
+    expect(rendererDurations).toEqual([450]);
+
+    const fallback = new OrgDeltaChartElement();
+    fallback.setAttribute('src', '/default.json');
+    document.body.append(fallback);
+    await settle();
+    expect(rendererDurations).toEqual([450, 700]);
+  });
+
+  it('shows node and current assignment provenance on hover and keyboard focus', async () => {
+    const chartDocument = cloneValidDocument();
+    chartDocument.nodes.usaid!.note = 'Agency provenance note.';
+    chartDocument.nodes.usaid!.sources = [
+      { label: 'Agency history', url: 'https://example.com/agency' },
+    ];
+    const assignment = chartDocument.snapshots[0]!.hierarchy.find(({ child }) => child === 'usaid')!;
+    assignment.note = 'Current assignment note.';
+    assignment.sources = [
+      { label: 'Assignment order', url: 'https://example.com/assignment' },
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(chartDocument)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+    await settle();
+
+    const trigger = document.createElement('button');
+    trigger.dataset.activateKind = 'node';
+    trigger.dataset.activateId = 'usaid';
+    element.shadowRoot!.querySelector('.canvas')!.append(trigger);
+    trigger.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }));
+
+    const tooltip = element.shadowRoot!.querySelector<HTMLElement>('[role="tooltip"]')!;
+    expect(tooltip.hidden).toBe(false);
+    expect(tooltip.textContent).toContain('Agency provenance note.');
+    expect(tooltip.textContent).toContain('Agency history');
+    expect(tooltip.textContent).toContain('Reports to Department of State');
+    expect(tooltip.textContent).toContain('Current assignment note.');
+    expect(tooltip.textContent).toContain('Assignment order');
+    expect(trigger.getAttribute('aria-describedby')).toBe(tooltip.id);
+
+    trigger.dispatchEvent(new MouseEvent('pointerout', { bubbles: true }));
+    expect(tooltip.hidden).toBe(true);
+    trigger.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(tooltip.hidden).toBe(false);
+    trigger.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    expect(tooltip.hidden).toBe(true);
+  });
+
+  it('opens combined baseline unit and removal details from a removed card', async () => {
+    const chartDocument = cloneValidDocument();
+    chartDocument.proposals = [{
+      id: 'remove-hr',
+      label: 'Remove HR',
+      base: 'current',
+      patches: [{ type: 'remove-node', node: 'state-hr' }],
+    }];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(chartDocument)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    element.setAttribute('initial-view', 'remove-hr');
+    document.body.append(element);
+    await settle();
+
+    const trigger = document.createElement('button');
+    element.shadowRoot!.querySelector('.canvas')!.append(trigger);
+    renderers[0]!.callbacks.onActivate('node', 'state-hr', trigger);
+
+    const details = element.shadowRoot!.querySelector('aside.details')!;
+    expect(details.textContent).toContain('State Human Resources');
+    expect(details.textContent).toContain('Changes');
+    expect(details.textContent).toContain('removed');
   });
 
   it('falls back to depth layout when taxonomy mode has no comparison tiers', async () => {
@@ -208,17 +325,17 @@ describe('OrgDeltaChartElement', () => {
     const trigger = document.createElement('button');
     element.shadowRoot!.querySelector('.canvas')!.append(trigger);
     staleCallbacks.onActivate('node', 'state', trigger);
-    expect(element.shadowRoot!.querySelector('aside')!.hidden).toBe(false);
+    expect(element.shadowRoot!.querySelector<HTMLElement>('aside.details')!.hidden).toBe(false);
 
     element.setAttribute('src', '/bad.json');
     expect(renderers[0]!.destroyed).toBe(true);
-    expect(element.shadowRoot!.querySelector('aside')!.hidden).toBe(true);
+    expect(element.shadowRoot!.querySelector<HTMLElement>('aside.details')!.hidden).toBe(true);
     expect(element.shadowRoot!.querySelector('h1')!.textContent).toBe('Organization chart');
     expect(element.shadowRoot!.querySelector('section')!.getAttribute('aria-label'))
       .toBe('Organization chart');
     expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent).toBe('Loading chart...');
     staleCallbacks.onActivate('node', 'state', trigger);
-    expect(element.shadowRoot!.querySelector('aside')!.hidden).toBe(true);
+    expect(element.shadowRoot!.querySelector<HTMLElement>('aside.details')!.hidden).toBe(true);
 
     failed.resolve(response({}, { ok: false, status: 500 }));
     await settle();
@@ -519,8 +636,8 @@ describe('OrgDeltaChartElement', () => {
     const about = element.shadowRoot!.querySelector<HTMLButtonElement>('[data-patch-group-about="choice"]')!;
     const before = element.shadowRoot!.querySelector<HTMLInputElement>('[data-patch-group="choice"]')!.checked;
     about.click();
-    expect(element.shadowRoot!.querySelector('aside h2')!.textContent).toBe('Choice');
-    expect(element.shadowRoot!.querySelector('aside script')).toBeNull();
+    expect(element.shadowRoot!.querySelector('aside.details h2')!.textContent).toBe('Choice');
+    expect(element.shadowRoot!.querySelector('aside.details script')).toBeNull();
     expect(element.shadowRoot!.querySelector<HTMLInputElement>('[data-patch-group="choice"]')!.checked)
       .toBe(before);
   });
@@ -577,7 +694,7 @@ describe('OrgDeltaChartElement', () => {
     expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent).toContain('is invalid');
     expect(renderers[0]!.destroyed).toBe(true);
     expect(element.shadowRoot!.querySelector('.canvas')!.childElementCount).toBe(0);
-    expect(element.shadowRoot!.querySelector('aside')!.hidden).toBe(true);
+    expect(element.shadowRoot!.querySelector<HTMLElement>('aside.details')!.hidden).toBe(true);
     element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="current"]')!.click();
     expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent).toContain('ready');
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -816,7 +933,7 @@ describe('OrgDeltaChartElement', () => {
     proposal.focus();
     proposal.click();
 
-    expect(element.shadowRoot!.querySelector('aside h2')!.textContent).toBe('Renamed State');
+    expect(element.shadowRoot!.querySelector('aside.details h2')!.textContent).toBe('Renamed State');
     expect((element.shadowRoot!.activeElement as HTMLElement).dataset.key).toBe('proposal-a');
   });
 
@@ -873,7 +990,7 @@ describe('OrgDeltaChartElement', () => {
     const trigger = document.createElement('button');
     element.shadowRoot!.querySelector('.canvas')!.append(trigger);
     renderers[0]!.callbacks.onActivate('node', 'css', trigger);
-    expect(element.shadowRoot!.querySelector('aside')!.textContent)
+    expect(element.shadowRoot!.querySelector('aside.details')!.textContent)
       .toContain('O-5 Commander');
   });
 
@@ -904,7 +1021,7 @@ describe('OrgDeltaChartElement', () => {
       .toContain('0 modified');
   });
 
-  it('closes active details when a view update removes the entity', async () => {
+  it('updates active unit details when a view update removes the entity', async () => {
     const documentData = cloneValidDocument();
     documentData.proposals[0]!.patchGroups![0]!.patches = [{ type: 'remove-node', node: 'usaid' }];
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(documentData)));
@@ -918,8 +1035,8 @@ describe('OrgDeltaChartElement', () => {
 
     element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="proposal-a"]')!.click();
 
-    expect(element.shadowRoot!.querySelector('aside')!.hidden).toBe(true);
-    expect(element.shadowRoot!.activeElement).not.toBe(trigger);
+    expect(element.shadowRoot!.querySelector<HTMLElement>('aside.details')!.hidden).toBe(false);
+    expect(element.shadowRoot!.querySelector('aside.details')!.textContent).toContain('removed');
   });
 
   it('closes active hierarchy details when the child is reparented', async () => {
@@ -942,13 +1059,13 @@ describe('OrgDeltaChartElement', () => {
       encodeHierarchyActivationId('state-hq', 'state-hr'),
       trigger,
     );
-    expect(element.shadowRoot!.querySelector('aside h2')!.textContent)
+    expect(element.shadowRoot!.querySelector('aside.details h2')!.textContent)
       .toBe('State Human Resources -> State Headquarters');
 
     element.shadowRoot!.querySelector<HTMLButtonElement>('[data-view-id="proposal-a"]')!.click();
 
-    expect(element.shadowRoot!.querySelector('aside')!.hidden).toBe(true);
-    expect(element.shadowRoot!.querySelector('aside h2')).toBeNull();
+    expect(element.shadowRoot!.querySelector<HTMLElement>('aside.details')!.hidden).toBe(true);
+    expect(element.shadowRoot!.querySelector('aside.details h2')).toBeNull();
   });
 
   it('opens internal, relationship, and change details activations', async () => {
@@ -962,11 +1079,11 @@ describe('OrgDeltaChartElement', () => {
     element.shadowRoot!.querySelector('.canvas')!.append(trigger);
 
     renderers[0]!.callbacks.onActivate('internal', 'state-hq', trigger);
-    expect(element.shadowRoot!.querySelector('aside h2')!.textContent).toBe('State Headquarters');
+    expect(element.shadowRoot!.querySelector('aside.details h2')!.textContent).toBe('State Headquarters');
     renderers[0]!.callbacks.onActivate('relationship', 'shared-leadership', trigger);
-    expect(element.shadowRoot!.querySelector('aside h2')!.textContent).toBe('Shared leadership');
+    expect(element.shadowRoot!.querySelector('aside.details h2')!.textContent).toBe('Shared leadership');
     renderers[0]!.callbacks.onActivate('change', 'usaid', trigger);
-    expect(element.shadowRoot!.querySelector('aside h2')!.textContent).toBe('USAID');
+    expect(element.shadowRoot!.querySelector('aside.details h2')!.textContent).toBe('USAID');
   });
 
   it('opens activation details safely and restores focus when closed', async () => {
@@ -988,7 +1105,7 @@ describe('OrgDeltaChartElement', () => {
     trigger.focus();
 
     renderers[0]!.callbacks.onActivate('node', 'state', trigger);
-    const panel = element.shadowRoot!.querySelector('aside')!;
+    const panel = element.shadowRoot!.querySelector<HTMLElement>('aside.details')!;
     expect(panel.hidden).toBe(false);
     expect(panel.querySelector('h2')!.textContent).toBe('<img src=x onerror=alert(1)>');
     expect(panel.querySelector('h2')).toBe(element.shadowRoot!.activeElement);
@@ -1028,7 +1145,7 @@ describe('OrgDeltaChartElement', () => {
     expect(decodeHierarchyActivationId(activationId)).toEqual([parentId, childId]);
     renderers[0]!.callbacks.onActivate('hierarchy', activationId, trigger);
 
-    expect(element.shadowRoot!.querySelector('aside h2')!.textContent).toBe('Child -> Parent');
+    expect(element.shadowRoot!.querySelector('aside.details h2')!.textContent).toBe('Child -> Parent');
   });
 
   it('opens hierarchy details from an internal overlay connector with delimiter-bearing IDs', async () => {
@@ -1082,7 +1199,7 @@ describe('OrgDeltaChartElement', () => {
     expect(connector.dataset.hierarchyId).toBe(encodeHierarchyActivationId(parentId, childId));
     connector.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-    expect(element.shadowRoot!.querySelector('aside h2')!.textContent)
+    expect(element.shadowRoot!.querySelector('aside.details h2')!.textContent)
       .toBe('Child -> Internal Parent');
   });
 

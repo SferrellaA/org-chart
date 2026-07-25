@@ -1141,6 +1141,20 @@ describe('validateDocument', () => {
     if (!result.ok) expect(result.errors.join('\n')).toMatch(/url.*pattern/i);
   });
 
+  it('accepts bounded transition duration and rejects values outside 0 through 5000', () => {
+    const valid = cloneValidDocument();
+    valid.presentation = { transitionDurationMs: 700 };
+    expect(validateDocument(valid).ok).toBe(true);
+
+    for (const transitionDurationMs of [-1, 5001, 1.5]) {
+      const invalid = cloneValidDocument();
+      invalid.presentation = { transitionDurationMs };
+      const result = validateDocument(invalid);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.join('\n')).toMatch(/transitionDurationMs/i);
+    }
+  });
+
   it('accepts primitive and null metadata values', () => {
     const document = cloneValidDocument();
     document.nodes.state!.metadata = {

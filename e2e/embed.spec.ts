@@ -11,6 +11,22 @@ async function ready(page: Page, url = example): Promise<void> {
   await expect(page.getByRole('status')).toContainText('ready');
 }
 
+async function openControls(page: Page, projectName: string): Promise<void> {
+  if (!projectName.includes('mobile')) return;
+  const toggle = page.getByRole('button', { name: 'Controls', exact: true });
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+}
+
+async function closeControls(page: Page, projectName: string): Promise<void> {
+  if (!projectName.includes('mobile')) return;
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Controls', exact: true })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
+}
+
 test('direct example and viewer load the same chart', async ({ page }) => {
   await ready(page);
   const directTitle = await page.getByRole('heading', { level: 1 }).textContent();
@@ -30,8 +46,9 @@ test('publisher iframe has a title and renders the chart', async ({ page }) => {
   await expect(chart.getByRole('status')).toContainText('ready');
 });
 
-test('proposal selection, requirements, conflicts, and diff signals work', async ({ page }) => {
+test('proposal selection, requirements, conflicts, and diff signals work', async ({ page }, testInfo) => {
   await ready(page);
+  await openControls(page, testInfo.project.name);
   await page.getByRole('combobox', { name: 'View' }).selectOption('spin-out-proposal');
   await expect(page.locator('[data-selection-status]')).toContainText(
     'Compared with: Illustrative current arrangement',
@@ -42,13 +59,15 @@ test('proposal selection, requirements, conflicts, and diff signals work', async
   await expect(page.getByRole('status')).toContainText(/[1-9]\d* modified/);
   await expect(page.locator('.org-delta-node--modified')).toBeVisible();
   await expect(page.locator('.org-delta-node--modified')).toHaveCSS('border-left-style', 'dashed');
-  await expect(page.getByRole('button', { name: /View changes/ }).first())
-    .toBeVisible();
-  await page.getByRole('button', { name: /View changes/ }).first().focus();
-  await page.getByRole('button', { name: /View changes/ }).first().press('Enter');
+  await closeControls(page, testInfo.project.name);
+  const modified = page.locator('[data-activate-kind="node"].org-delta-node--modified').first();
+  await modified.focus();
+  await modified.press('Enter');
   await expect(page.locator('aside.details')).toBeVisible();
+  await expect(page.locator('aside.details')).toContainText('Changes');
   await page.getByRole('button', { name: 'Close details' }).click();
 
+  await openControls(page, testInfo.project.name);
   const rename = page.getByRole('checkbox', { name: 'Rename the fictional Policy Lab' });
   const spinOut = page.getByRole('checkbox', { name: 'Spin out as a subordinate organization' });
   const retain = page.getByRole('checkbox', { name: 'Retain as an internal office' });
@@ -61,8 +80,9 @@ test('proposal selection, requirements, conflicts, and diff signals work', async
   await expect(page.getByRole('status')).toContainText(/modified|unchanged/);
 });
 
-test('hidden internal offices remain searchable and are revealed and centered', async ({ page }) => {
+test('hidden internal offices remain searchable and are revealed and centered', async ({ page }, testInfo) => {
   await ready(page);
+  await openControls(page, testInfo.project.name);
   await page.getByRole('checkbox', { name: 'Show internal units' }).uncheck();
   await expect(page.locator('[data-hidden-internal-count]')).toContainText('hidden');
   await expect(page.getByRole('button', { name: 'Office of Consular Demonstrations' }))
@@ -71,7 +91,7 @@ test('hidden internal offices remain searchable and are revealed and centered', 
   const search = page.getByRole('combobox', { name: 'Find organization' });
   await search.fill('Consular demo office');
   await page.getByRole('button', { name: 'Office of Consular Demonstrations' }).click();
-  await expect(page.locator('[data-internal-id="consular"] [data-activate-id="consular"]'))
+  await expect(page.locator('[data-internal-id="consular"][data-activate-id="consular"]'))
     .toBeVisible();
   await expect(page.getByRole('status')).toHaveText(/Revealed Office of Consular Demonstrations/);
 });
@@ -309,7 +329,7 @@ test('accessibility semantics describe hierarchy, internals, relationships, and 
   await expect(page.locator('.org-delta-relationship-descriptions')).toContainText(
     'Shared-leadership-style cross-link',
   );
-  await expect(page.locator('.org-delta-node--unchanged').first()).toHaveAttribute(
+  await expect(page.locator('.org-delta-node-shell').first()).toHaveAttribute(
     'data-diff-kind', 'unchanged',
   );
   await expect(page.locator('.org-delta-node--unchanged').first()).toHaveCSS('border-left-style', /solid|double|dashed/);
@@ -355,7 +375,7 @@ test('reduced motion removes transition and animation duration', async ({ page }
   await expect(page.locator('.org-delta-node').first()).toBeAttached();
 });
 
-test('forced colors mode keeps the chart operable', async ({ page }) => {
+test('forced colors mode keeps the chart operable', async ({ page }, testInfo) => {
   await page.emulateMedia({ forcedColors: 'active' });
   await ready(page);
   expect(await page.evaluate(() => matchMedia('(forced-colors: active)').matches)).toBe(true);
@@ -369,6 +389,7 @@ test('forced colors mode keeps the chart operable', async ({ page }) => {
   await expect(modified).toHaveCSS('border-left-width', '8px');
   await expect(page.locator('.org-delta-connector--relationship').first())
     .toHaveCSS('stroke', /rgb|rgba/);
+  await openControls(page, testInfo.project.name);
   await page.getByRole('button', { name: 'Fit chart' }).click();
   await expect(page.getByRole('tree', { name: 'Organization tree navigation' })).toBeVisible();
 });
