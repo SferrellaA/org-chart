@@ -24,6 +24,8 @@ export type * from './model/diff';
 export type * from './model/types';
 export { buildRenderView } from './presentation/build-view';
 export type { BuildRenderViewOptions } from './presentation/build-view';
+export { buildTaxonomyRenderView } from './presentation/build-taxonomy-view';
+export type * from './presentation/build-taxonomy-view';
 export {
   changeDetails,
   hierarchyDetails,
@@ -36,6 +38,8 @@ export type * from './renderer/types';
 export { D3OrgChartRenderer } from './renderer/d3-renderer';
 export type { D3OrgChartRendererOptions } from './renderer/d3-renderer';
 export { syncOverlay } from './renderer/overlay';
+export { TaxonomyRenderer } from './renderer/taxonomy-renderer';
+export type { TaxonomyRendererOptions } from './renderer/taxonomy-renderer';
 export { bundledMarker, bundledMarkerIds, bundledMarkers } from './markers/catalog';
 export type { BundledMarker } from './markers/catalog';
 

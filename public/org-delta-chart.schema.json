@@ -679,6 +679,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "layoutMode": { "enum": ["depth", "taxonomy"] },
         "initialExpansionDepth": { "type": "integer", "minimum": 0 },
         "focusNodes": {
           "type": "array",

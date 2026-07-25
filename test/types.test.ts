@@ -75,6 +75,7 @@ it('exposes readonly collections and exact metadata and annotation shapes', () =
 it('exposes versioned taxonomy catalogs, assignments, and granular patches', () => {
   const document: OrgDocument = {
     title: 'Taxonomy example',
+    presentation: { layoutMode: 'taxonomy' },
     nodes: {
       wing: {
         name: 'Example Wing',
@@ -125,5 +126,6 @@ it('exposes versioned taxonomy catalogs, assignments, and granular patches', () 
   ];
 
   expect(document.snapshots[0]?.taxonomy?.systems[0]?.id).toBe('usaf-echelon');
+  expect(document.presentation?.layoutMode).toBe('taxonomy');
   expect(patches).toHaveLength(12);
 });

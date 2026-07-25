@@ -46,6 +46,32 @@ export const componentStyles = `
   .org-delta-node--removed, .org-delta-internal--removed { border-left: 8px double #b42318; text-decoration: line-through; }
   .org-delta-node--modified, .org-delta-internal--modified { border-left: 8px dashed #9a6700; background-image: repeating-linear-gradient(45deg, transparent 0 9px, rgba(154,103,0,.1) 9px 12px); }
   .org-delta-change { border-style: solid; font-weight: 700; text-transform: capitalize; }
+  .org-delta-taxonomy-renderer { position: relative; width: 100%; height: 100%; overflow: hidden; touch-action: none; }
+  .org-delta-taxonomy-world { display: grid; position: absolute; top: 0; left: 0; min-width: 100%; width: max-content; transform-origin: 0 0; }
+  .org-delta-taxonomy-world[data-taxonomy-comparison='true'] { grid-template-columns: max-content minmax(320px, max-content) 120px minmax(320px, max-content) max-content; min-width: 1500px; }
+  .org-delta-taxonomy-world[data-taxonomy-comparison='false'] { grid-template-columns: 120px minmax(420px, max-content) max-content; min-width: 780px; }
+  .org-delta-taxonomy-header { display: flex; grid-column: 1 / -1; justify-content: space-around; gap: 120px; padding: 8px 180px; background: #e9edf5; border-bottom: 2px solid #94a3b8; }
+  .org-delta-taxonomy-side-heading { min-width: 320px; text-align: center; }
+  .org-delta-taxonomy-tier { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; position: relative; align-items: start; gap: 18px; min-height: 150px; padding: 24px 18px; border-bottom: 1px solid #cbd5e1; }
+  [data-taxonomy-comparison='true'] .org-delta-taxonomy-tier { min-width: 1500px; }
+  [data-taxonomy-comparison='false'] .org-delta-taxonomy-tier { min-width: 780px; }
+  .org-delta-taxonomy-tier--added { background: rgba(24,121,78,.06); }
+  .org-delta-taxonomy-tier--removed { background: rgba(180,35,24,.06); }
+  .org-delta-taxonomy-tier-label { position: sticky; top: 4px; z-index: 2; margin: 0; padding: 4px; text-align: center; font-size: .86rem; color: #475569; background: rgba(247,248,251,.9); }
+  .org-delta-taxonomy-systems { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(140px, max-content); gap: 8px; }
+  .org-delta-taxonomy-system { display: grid; align-content: start; gap: 4px; min-height: 72px; padding: 8px; border: 1px solid #94a3b8; border-radius: 6px; background: #f8fafc; }
+  .org-delta-taxonomy-system span { color: #475569; }
+  .org-delta-taxonomy-node-lane { display: flex; position: relative; z-index: 1; align-items: flex-start; gap: 18px; min-height: 96px; }
+  .org-delta-taxonomy-card { position: relative; flex: 0 0 260px; width: 260px; padding: 8px; box-shadow: 0 3px 12px rgba(15,23,42,.12); }
+  .org-delta-taxonomy-card--internal { flex-basis: 210px; width: 210px; border-width: 1px; background: #f1f5f9; color: #475569; box-shadow: none; }
+  .org-delta-taxonomy-card--revealed { outline: 4px solid #155eef; outline-offset: 4px; }
+  .org-delta-taxonomy-toggle { position: absolute; right: 4px; bottom: 4px; min-width: 32px; min-height: 32px; }
+  .org-delta-taxonomy-gutter { position: relative; z-index: 1; min-height: 72px; }
+  .org-delta-taxonomy-connectors { position: absolute; z-index: 0; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  .org-delta-taxonomy-connectors path { fill: none; stroke: #64748b; stroke-width: 2; pointer-events: stroke; }
+  .org-delta-taxonomy-connectors [data-taxonomy-relationship] { stroke: #7c3aed; stroke-dasharray: 6 4; }
+  .org-delta-taxonomy-connectors [data-taxonomy-movement] { stroke: #9a6700; stroke-width: 3; stroke-dasharray: 8 5; }
+  .org-delta-taxonomy-movement { display: block; width: 100%; border-top: 2px dashed #9a6700; }
   @media (max-width: 640px) {
     :host { min-height: 520px; }
     .workspace { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
@@ -58,12 +84,12 @@ export const componentStyles = `
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0s !important; animation-duration: 0s !important; } }
   @media (forced-colors: active) {
     :host { --org-delta-forced-colors: active; }
-    .chart-shell, header, .details, .org-delta-node, .org-delta-minimap { border-color: CanvasText; color: CanvasText; }
+    .chart-shell, header, .details, .org-delta-node, .org-delta-minimap, .org-delta-taxonomy-system { border-color: CanvasText; color: CanvasText; }
     .org-delta-node { background: Canvas; forced-color-adjust: auto; }
     .org-delta-node--added { border-left: 8px solid Highlight; }
     .org-delta-node--removed { border-left: 8px double Highlight; }
     .org-delta-node--modified { border-left: 8px dashed Highlight; }
-    .org-delta-connector--hierarchy, .org-delta-connector--relationship, path.link { color: CanvasText; stroke: currentColor; forced-color-adjust: auto; }
+    .org-delta-connector--hierarchy, .org-delta-connector--relationship, path.link, .org-delta-taxonomy-connectors path { color: CanvasText; stroke: currentColor; forced-color-adjust: auto; }
   }
 `;
 

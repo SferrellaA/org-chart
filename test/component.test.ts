@@ -14,6 +14,7 @@ import {
   type RenderView,
 } from '../src/renderer/types';
 import { cloneValidDocument } from './fixtures';
+import { taxonomyDocument } from './fixtures';
 
 class FakeRenderer implements ChartRenderer {
   readonly views: RenderView[] = [];
@@ -55,10 +56,13 @@ async function settle(): Promise<void> {
 
 describe('OrgDeltaChartElement', () => {
   const renderers: FakeRenderer[] = [];
+  const rendererModes: string[] = [];
 
   beforeEach(() => {
     renderers.length = 0;
-    setRendererFactoryForTests((_container, callbacks) => {
+    rendererModes.length = 0;
+    setRendererFactoryForTests((_container, callbacks, mode) => {
+      rendererModes.push(mode);
       const renderer = new FakeRenderer(callbacks);
       renderers.push(renderer);
       return renderer;
@@ -104,6 +108,47 @@ describe('OrgDeltaChartElement', () => {
       baselineId: 'current',
       summary: { added: 0, removed: 0, modified: 0, unchanged: 4 },
     })]);
+  });
+
+  it('uses the document taxonomy layout unless the component attribute overrides it', async () => {
+    const chartDocument = taxonomyDocument();
+    chartDocument.presentation = { layoutMode: 'taxonomy' };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(chartDocument)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/taxonomy.json');
+    element.setAttribute('initial-view', 'remove-air-divisions');
+    document.body.append(element);
+
+    await settle();
+    expect(rendererModes).toEqual(['taxonomy']);
+    expect((renderers[0]!.views[0] as unknown as { baseline?: unknown }).baseline).toBeDefined();
+
+    const trigger = document.createElement('button');
+    element.shadowRoot!.querySelector('.canvas')!.append(trigger);
+    renderers[0]!.callbacks.onActivate('node', 'air-division-a', trigger, { side: 'baseline' });
+    expect(element.shadowRoot!.querySelector('aside')!.textContent).toContain('Example Air Division A');
+    expect(element.shadowRoot!.querySelector('aside')!.textContent).toContain('Commander');
+    element.setAttribute('show-relationships', 'false');
+    expect(element.shadowRoot!.querySelector('aside')!.hidden).toBe(false);
+    expect(element.shadowRoot!.querySelector('aside')!.textContent).toContain('Commander');
+
+    element.setAttribute('layout-mode', 'depth');
+    expect(rendererModes).toEqual(['taxonomy', 'depth']);
+    expect(renderers[0]!.destroyed).toBe(true);
+  });
+
+  it('falls back to depth layout when taxonomy mode has no comparison tiers', async () => {
+    const chartDocument = cloneValidDocument();
+    chartDocument.presentation = { layoutMode: 'taxonomy' };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(chartDocument)));
+    const element = new OrgDeltaChartElement();
+    element.setAttribute('src', '/chart.json');
+    document.body.append(element);
+
+    await settle();
+    expect(rendererModes).toEqual(['depth']);
+    expect(element.shadowRoot!.querySelector('[role="status"]')!.textContent)
+      .toContain('Taxonomy layout unavailable; showing depth layout.');
   });
 
   it.each([
@@ -1010,7 +1055,7 @@ describe('OrgDeltaChartElement', () => {
     setRendererFactoryForTests((container, callbacks) => {
       let overlay: ConnectorOverlay | undefined;
       return {
-        render(view): void {
+        render(view: RenderView): void {
           const source = document.createElement('div');
           source.dataset.internalId = parentId;
           source.getBoundingClientRect = () => new DOMRect(10, 10, 100, 40);

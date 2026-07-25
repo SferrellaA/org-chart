@@ -19,8 +19,8 @@ This roadmap records the agreed sequence for post-MVP work. Future sessions shou
 2. **Taxonomy Foundation** - completed 2026-07-24
    Add versioned taxonomy data to the canonical model and schema. Support ordered comparison tiers, named taxonomy systems, taxonomy levels mapped to explicit tiers, multiple node assignments, proposal changes to assignments and definitions, validation, resolution, and diffs. Missing assignments should remain valid and use hierarchy fallback.
 
-3. **Taxonomy Renderer**
-   Add a second renderer mode over the shared resolved model. The existing depth renderer remains hierarchy-first with compact internal rows. The taxonomy renderer positions organizations by comparison tier, renders internal organizations as smaller subdued cards, reserves side columns for one or more taxonomy systems, and shows baseline markers/connectors when proposals move units between tiers.
+3. **Taxonomy Renderer** - completed 2026-07-25
+   Add a second renderer mode over the shared resolved model. The existing depth renderer remains hierarchy-first with compact internal rows. The taxonomy renderer aligns complete baseline and proposed charts to shared comparison tiers, renders internal organizations as smaller subdued cards, shows every taxonomy system supplied by each view, and connects organizations that move between tiers.
 
 4. **Focus Sets**
    Turn the existing dormant zone-like concept into authored named focus sets with versioned membership. Allow one active set at a time. Members receive the set accent while nonmembers are de-emphasized but retained as context. Support the feature in both depth and taxonomy renderers, including removed nodes and taxonomy movement markers.
@@ -33,6 +33,9 @@ This roadmap records the agreed sequence for post-MVP work. Future sessions shou
 
 7. **Integration Hardening**
    Polish accessibility, mobile behavior, performance, schema documentation, package exports, visual examples, and end-to-end tests using the realistic fixture and stress cases.
+
+8. **Cross-Taxonomy Ambiguity**
+   Visualize organizations whose assignments in different taxonomy systems map to different comparison tiers without duplicating the organization or privileging one taxonomy.
 
 ## Key Design Decisions
 

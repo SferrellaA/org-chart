@@ -318,9 +318,12 @@ export interface Zone {
   style?: ZoneStyle;
 }
 
+export type LayoutMode = 'depth' | 'taxonomy';
+
 export interface PresentationDefaults {
   initialExpansionDepth?: number;
   focusNodes?: readonly string[];
+  layoutMode?: LayoutMode;
 }
 
 export interface OrgDocument {

@@ -7,10 +7,15 @@ export type ActivationKind =
   | 'relationship'
   | 'change';
 
+export interface ActivationContext {
+  side?: 'baseline' | 'proposed';
+}
+
 export type ActivationHandler = (
   kind: ActivationKind,
   id: string,
   trigger: HTMLElement | SVGElement,
+  context?: ActivationContext,
 ) => void;
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';

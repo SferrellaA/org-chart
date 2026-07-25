@@ -1,9 +1,13 @@
 import { diffCharts, type ChartDiff } from '../model/diff';
 import { resolveView } from '../model/resolve';
 import { initialPatchSelection, togglePatchGroup, type PatchSelection } from '../model/selection';
-import type { OrgDocument, Proposal, ResolvedChart } from '../model/types';
+import type { LayoutMode, OrgDocument, Proposal, ResolvedChart } from '../model/types';
 import { validateDocument } from '../model/validate';
 import { buildRenderView } from '../presentation/build-view';
+import {
+  buildTaxonomyRenderView,
+  type TaxonomyRenderView,
+} from '../presentation/build-taxonomy-view';
 import {
   changeDetails,
   hierarchyDetails,
@@ -13,8 +17,9 @@ import {
   type DetailsItem,
 } from '../presentation/notes';
 import { D3OrgChartRenderer } from '../renderer/d3-renderer';
-import type { ActivationHandler, ActivationKind } from '../renderer/overlay';
+import type { ActivationContext, ActivationHandler, ActivationKind } from '../renderer/overlay';
 import { decodeHierarchyActivationId, type ChartRenderer, type RenderView } from '../renderer/types';
+import { TaxonomyRenderer } from '../renderer/taxonomy-renderer';
 import { closeDetailsPanel, renderDetailsPanel } from './details-panel';
 import { cleanupControls, renderControls, type ControlsHandlers } from './controls';
 import { installStyles } from './styles';
@@ -26,6 +31,7 @@ interface ActiveDetails {
   kind: DetailsKind;
   id: string;
   trigger: HTMLElement | SVGElement;
+  context?: ActivationContext;
 }
 
 export interface RendererCallbacks {
@@ -35,7 +41,12 @@ export interface RendererCallbacks {
 export type RendererFactory = (
   container: HTMLElement,
   callbacks: RendererCallbacks,
-) => ChartRenderer;
+  mode: LayoutMode,
+) => ChartRenderer<RenderView> | ChartRenderer<TaxonomyRenderView>;
+
+type ActiveRenderer =
+  | { mode: 'depth'; instance: ChartRenderer<RenderView> }
+  | { mode: 'taxonomy'; instance: ChartRenderer<TaxonomyRenderView> };
 
 let rendererFactory: RendererFactory | undefined;
 
@@ -85,15 +96,17 @@ export class OrgDeltaChartElement extends HTMLElement {
     'compare-to',
     'show-internal',
     'show-relationships',
+    'layout-mode',
   ];
 
   private readonly template: ComponentTemplate;
   private request: AbortController | undefined;
   private requestVersion = 0;
-  private renderer: ChartRenderer | undefined;
+  private renderer: ActiveRenderer | undefined;
   private documentData: OrgDocument | undefined;
   private viewErrors: ReadonlyMap<string, readonly string[]> = new Map();
   private selected: ResolvedChart | undefined;
+  private baseline: ResolvedChart | undefined;
   private diff: ChartDiff | undefined;
   private activationVersion = 0;
   private selectedViewId: string | undefined;
@@ -101,7 +114,7 @@ export class OrgDeltaChartElement extends HTMLElement {
   private showRelationships = true;
   private readonly patchSelections = new Map<string, PatchSelection>();
   private readonly revealedInternalIds = new Set<string>();
-  private renderView: RenderView | undefined;
+  private renderView: RenderView | TaxonomyRenderView | undefined;
   private activeDetails: ActiveDetails | undefined;
 
   constructor() {
@@ -185,10 +198,11 @@ export class OrgDeltaChartElement extends HTMLElement {
 
   private clearView(): void {
     this.activationVersion += 1;
-    this.renderer?.destroy();
+    this.renderer?.instance.destroy();
     this.renderer = undefined;
     this.template.canvas.replaceChildren();
     this.selected = undefined;
+    this.baseline = undefined;
     this.diff = undefined;
     this.renderView = undefined;
     this.activeDetails = undefined;
@@ -254,23 +268,42 @@ export class OrgDeltaChartElement extends HTMLElement {
       const selected = resolve(documentData, selectedId, this.patchSelections);
       const baseline = resolve(documentData, baselineId, this.patchSelections);
       const diff = diffCharts(baseline, selected);
-      const view = buildRenderView(selected, diff, {
+      const configuredMode = this.configuredLayoutMode(selected.presentation.layoutMode);
+      const taxonomyFallback = configuredMode === 'taxonomy' &&
+        selected.taxonomy.comparisonTiers.length === 0;
+      const layoutMode: LayoutMode = taxonomyFallback ? 'depth' : configuredMode;
+      const viewOptions = {
         showInternal: this.showInternal,
         showRelationships: this.showRelationships,
         revealedInternalIds: this.revealedInternalIds,
-      });
-      if (!this.renderer) {
+      };
+      const view = layoutMode === 'taxonomy'
+        ? buildTaxonomyRenderView(baseline, selected, diff, {
+            ...viewOptions,
+            comparison: baselineId !== selectedId,
+          })
+        : buildRenderView(selected, diff, viewOptions);
+      if (!this.renderer || this.renderer.mode !== layoutMode) {
+        this.renderer?.instance.destroy();
         const activationVersion = this.activationVersion;
         const callbacks: RendererCallbacks = {
-          onActivate: (kind, id, trigger) => {
-            if (activationVersion === this.activationVersion) this.activate(kind, id, trigger);
+          onActivate: (kind, id, trigger, context) => {
+            if (activationVersion === this.activationVersion) {
+              this.activate(kind, id, trigger, context);
+            }
           },
         };
-        this.renderer = rendererFactory
-          ? rendererFactory(this.template.canvas, callbacks)
-          : new D3OrgChartRenderer(this.template.canvas, callbacks);
+        const created = rendererFactory
+          ? rendererFactory(this.template.canvas, callbacks, layoutMode)
+          : layoutMode === 'taxonomy'
+            ? new TaxonomyRenderer(this.template.canvas, callbacks)
+            : new D3OrgChartRenderer(this.template.canvas, callbacks);
+        this.renderer = layoutMode === 'taxonomy'
+          ? { mode: 'taxonomy', instance: created as ChartRenderer<TaxonomyRenderView> }
+          : { mode: 'depth', instance: created as ChartRenderer<RenderView> };
       }
       this.selected = selected;
+      this.baseline = baseline;
       this.diff = diff;
       this.renderView = view;
       this.selectedViewId = selectedId;
@@ -284,8 +317,15 @@ export class OrgDeltaChartElement extends HTMLElement {
         ?? documentData.proposals.find(({ id }) => id === baselineId)?.label
         ?? baselineId;
       this.renderCurrentControls(selectedId, label, baselineLabel, view.searchEntries);
-      this.template.status.textContent = `${documentData.title}: ${label} ready, ${summary.added} added, ${summary.removed} removed, ${summary.modified} modified, ${summary.unchanged} unchanged.`;
-      this.renderer.render(view);
+      const fallbackStatus = taxonomyFallback
+        ? 'Taxonomy layout unavailable; showing depth layout. '
+        : '';
+      this.template.status.textContent = `${fallbackStatus}${documentData.title}: ${label} ready, ${summary.added} added, ${summary.removed} removed, ${summary.modified} modified, ${summary.unchanged} unchanged.`;
+      if (this.renderer.mode === 'taxonomy') {
+        this.renderer.instance.render(view as TaxonomyRenderView);
+      } else if (this.renderer.mode === 'depth') {
+        this.renderer.instance.render(view as RenderView);
+      }
       this.refreshActiveDetails();
       this.dispatchEvent(new CustomEvent('org-delta-chart-ready', {
         detail: { title: documentData.title, viewId: selectedId, baselineId, summary: { ...summary } },
@@ -366,7 +406,8 @@ export class OrgDeltaChartElement extends HTMLElement {
       }
       this.updateChart();
       const ownerId = this.renderView?.searchEntries.find((entry) => entry.id === id)?.ownerId;
-      if (ownerId) this.renderer?.reveal(ownerId);
+      if (this.renderer?.mode === 'taxonomy') this.renderer.instance.reveal(id);
+      else if (ownerId) this.renderer?.instance.reveal(ownerId);
       const node = this.selected?.nodes.get(id);
       this.template.status.textContent = node ? `Revealed ${node.name}.` : `Revealed ${id}.`;
     },
@@ -374,13 +415,13 @@ export class OrgDeltaChartElement extends HTMLElement {
       this.revealedInternalIds.clear();
       this.updateChart();
     },
-    fit: () => this.renderer?.fit(),
+    fit: () => this.renderer?.instance.fit(),
   };
 
-  private readonly activate: ActivationHandler = (kind, id, trigger) => {
-    const item = this.detailsFor(kind, id);
+  private readonly activate: ActivationHandler = (kind, id, trigger, context) => {
+    const item = this.detailsFor(kind, id, context);
     if (item) {
-      this.activeDetails = { kind, id, trigger };
+      this.activeDetails = { kind, id, trigger, ...(context ? { context } : {}) };
       this.showActiveDetails(item, trigger);
     }
   };
@@ -404,7 +445,7 @@ export class OrgDeltaChartElement extends HTMLElement {
         ?.patchGroups?.find(({ id }) => id === active.id);
       details = group ? patchGroupDetails(group) : undefined;
     } else {
-      details = this.detailsFor(active.kind, active.id);
+      details = this.detailsFor(active.kind, active.id, active.context);
     }
     if (!details) {
       this.activeDetails = undefined;
@@ -418,13 +459,18 @@ export class OrgDeltaChartElement extends HTMLElement {
         .find((candidate) =>
           candidate.getAttribute('data-activate-kind') === active.kind
           && candidate.getAttribute('data-activate-id') === active.id
+          && (!active.context?.side || candidate.getAttribute('data-view-side') === active.context.side)
         );
     active.trigger = currentTrigger ?? (active.trigger.isConnected ? active.trigger : this.template.canvas);
     this.showActiveDetails(details, active.trigger, false);
   }
 
-  private detailsFor(kind: ActivationKind, id: string): DetailsItem | undefined {
-    const chart = this.selected;
+  private detailsFor(
+    kind: ActivationKind,
+    id: string,
+    context?: ActivationContext,
+  ): DetailsItem | undefined {
+    const chart = context?.side === 'baseline' ? this.baseline : this.selected;
     if (!chart) return undefined;
     if (kind === 'node' || kind === 'internal') {
       const node = chart.nodes.get(id);
@@ -451,6 +497,13 @@ export class OrgDeltaChartElement extends HTMLElement {
       return change && change.kind !== 'unchanged' ? changeDetails(change) : undefined;
     }
     return undefined;
+  }
+
+  private configuredLayoutMode(documentDefault: LayoutMode | undefined): LayoutMode {
+    const attribute = this.getAttribute('layout-mode');
+    return attribute === 'depth' || attribute === 'taxonomy'
+      ? attribute
+      : documentDefault ?? 'depth';
   }
 
   private showFatalError(message: string, detail: unknown): void {

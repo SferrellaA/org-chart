@@ -98,7 +98,7 @@ Nodes can carry ordered leadership billets in definitions, snapshots, or `set-no
 
 Rank markers support bundled IDs, HTTPS images, text, or emoji. See `docs/marker-catalog.md` for bundled marker IDs.
 
-## Taxonomy Foundation
+## Taxonomies And Tier Comparison
 
 Snapshots may define ordered comparison tiers and named taxonomy systems. Levels in different systems map to shared tiers, allowing unlike echelon names to be compared without treating those names as equivalent identities:
 
@@ -138,13 +138,29 @@ Nodes use a system-to-level record, which permits assignments in several systems
 }
 ```
 
-Assignments may be omitted. Resolution preserves missing classification rather than inventing a level; hierarchy-based display fallback belongs to the later taxonomy renderer.
+Assignments may be omitted. Resolution preserves missing classification rather than inventing a level. In taxonomy layout, missing assignments use hierarchy fallback: internal edges remain on their parent's tier and subordinate edges descend one tier, clamped to the available range. Assignments in several systems that resolve to different tiers currently use the same fallback; explicit cross-taxonomy ambiguity visualization is deferred on the roadmap.
 
 Taxonomy definitions and assignments are versioned. Proposals support granular `add-`, `set-`, and `remove-` patches for comparison tiers, taxonomy systems, and levels, plus `set-taxonomy-assignment` and `remove-taxonomy-assignment`. `set-comparison-tier-order` declares the complete final tier order whenever tiers are added or removed.
 
 Taxonomy patches in one proposal selection form a transaction. Writes compose by stable entity and field, not array position; conflicting writes are rejected, and references are checked only against the final state after structural patches. Consequently, a proposal may remove Air Division nodes and the `air-division` level, remap `numbered-air-force` to `division-equivalent`, and explicitly reparent surviving wings in any patch order. Removals never cascade to surviving nodes.
 
-This phase exposes taxonomy through validation, resolution, and diff APIs. Taxonomy-specific chart layout and controls are intentionally deferred to the Taxonomy Renderer roadmap phase.
+Set taxonomy layout as a document default:
+
+```json
+"presentation": {
+  "layoutMode": "taxonomy"
+}
+```
+
+An embed author can override the document without changing its organization data:
+
+```html
+<org-delta-chart src="./chart.json" layout-mode="depth"></org-delta-chart>
+```
+
+`layoutMode` and `layout-mode` accept `depth` or `taxonomy`; the component attribute takes precedence and the default is `depth`. If taxonomy mode is requested for a view with no comparison tiers, the component announces the condition and falls back to depth layout.
+
+Taxonomy deltas align two complete charts to shared tier rows. The baseline and proposed halves each show all organizations and every taxonomy system supplied by that resolved view, including duplicated unchanged organizations and version-specific leadership. Added and removed organizations appear only on their applicable side. Organizations that move tiers receive cross-chart connectors. A standalone snapshot renders as one full-width taxonomy chart.
 
 ## Snapshots And Proposals
 

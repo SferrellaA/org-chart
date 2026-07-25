@@ -472,7 +472,11 @@ describe('resolveView', () => {
     document.relationships![0]!.sources = [
       { label: 'Relationship source', url: 'https://example.com/relationship' },
     ];
-    document.presentation = { initialExpansionDepth: 2, focusNodes: ['state'] };
+    document.presentation = {
+      initialExpansionDepth: 2,
+      focusNodes: ['state'],
+      layoutMode: 'taxonomy',
+    };
     delete document.proposals[0]!.patchGroups;
     document.proposals[0]!.patches = [
       {
@@ -543,6 +547,7 @@ describe('resolveView', () => {
       sources: [{ label: 'Patch source' }],
     });
     expect(second.presentation.focusNodes).toEqual(['state']);
+    expect(second.presentation.layoutMode).toBe('taxonomy');
   });
 
   it('replaces leadership through set-node patches', () => {

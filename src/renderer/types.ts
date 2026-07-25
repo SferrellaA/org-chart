@@ -68,8 +68,8 @@ export interface RenderView {
   initialExpansionIds: readonly string[];
 }
 
-export interface ChartRenderer {
-  render(view: RenderView): void;
+export interface ChartRenderer<View = RenderView> {
+  render(view: View): void;
   reveal(nodeId: string): void;
   fit(): void;
   destroy(): void;

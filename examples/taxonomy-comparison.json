@@ -1,0 +1,82 @@
+{
+  "$schema": "https://org-delta-chart.dev/schema/org-delta-chart.schema.json",
+  "title": "Synthetic taxonomy transition",
+  "nodes": {
+    "naf": {
+      "name": "Example Numbered Air Force",
+      "taxonomyAssignments": { "usaf-echelon": "numbered-air-force" },
+      "leadership": [{ "id": "naf-cc", "title": "Commander", "authorizedRank": { "label": "Major General" } }]
+    },
+    "plans": { "name": "Plans Office" },
+    "air-division": {
+      "name": "Example Air Division",
+      "taxonomyAssignments": { "usaf-echelon": "air-division" },
+      "leadership": [{ "id": "division-cc", "title": "Commander", "authorizedRank": { "label": "Brigadier General" } }]
+    },
+    "wing": {
+      "name": "Example Wing",
+      "taxonomyAssignments": { "usaf-echelon": "wing" },
+      "leadership": [{ "id": "wing-cc", "title": "Commander", "authorizedRank": { "label": "Colonel" } }]
+    },
+    "army-division": {
+      "name": "Example Army Division",
+      "taxonomyAssignments": { "army-echelon": "division" }
+    }
+  },
+  "snapshots": [{
+    "id": "current",
+    "label": "With Air Division",
+    "nodes": {
+      "naf": {},
+      "plans": {},
+      "air-division": {},
+      "wing": {},
+      "army-division": {}
+    },
+    "hierarchy": [
+      { "child": "plans", "parent": "naf", "relationship": "internal" },
+      { "child": "air-division", "parent": "naf", "relationship": "subordinate" },
+      { "child": "wing", "parent": "air-division", "relationship": "subordinate" }
+    ],
+    "taxonomy": {
+      "comparisonTiers": [
+        { "id": "naf-equivalent", "label": "NAF equivalent" },
+        { "id": "division-equivalent", "label": "Division equivalent" },
+        { "id": "wing", "label": "Wing" }
+      ],
+      "systems": [
+        {
+          "id": "army-echelon",
+          "label": "Army echelon",
+          "levels": [{ "id": "division", "label": "Division", "tier": "division-equivalent" }]
+        },
+        {
+          "id": "usaf-echelon",
+          "label": "USAF echelon",
+          "levels": [
+            { "id": "numbered-air-force", "label": "Numbered Air Force", "tier": "naf-equivalent" },
+            { "id": "air-division", "label": "Air Division", "tier": "division-equivalent" },
+            { "id": "wing", "label": "Wing", "tier": "wing" }
+          ]
+        }
+      ]
+    }
+  }],
+  "proposals": [{
+    "id": "remove-air-division",
+    "label": "Remove Air Division",
+    "base": "current",
+    "patches": [
+      { "type": "remove-taxonomy-level", "taxonomy": "usaf-echelon", "level": "air-division" },
+      { "type": "set-taxonomy-level", "taxonomy": "usaf-echelon", "level": "numbered-air-force", "value": { "tier": "division-equivalent" } },
+      { "type": "remove-node", "node": "air-division" },
+      { "type": "set-parent", "node": "wing", "parent": "naf", "relationship": "subordinate" },
+      { "type": "set-node", "node": "naf", "value": { "leadership": [{ "id": "naf-cc", "title": "Commander", "authorizedRank": { "label": "Lieutenant General" } }] } }
+    ]
+  }],
+  "presentation": {
+    "layoutMode": "taxonomy",
+    "initialExpansionDepth": 4,
+    "focusNodes": ["naf"]
+  }
+}

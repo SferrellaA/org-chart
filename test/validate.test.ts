@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { validateDocument } from '../src/model/validate';
 import type { OrgDocument, Proposal } from '../src/model/types';
 import { cloneValidDocument, taxonomyDocument, validDocument, type DeepMutable } from './fixtures';
+import taxonomyComparison from '../examples/taxonomy-comparison.json';
 
 function renameUsaid(document: DeepMutable<OrgDocument>, id: string): void {
   document.nodes[id] = document.nodes.usaid!;
@@ -77,11 +78,28 @@ describe('validateDocument', () => {
     });
   });
 
+  it('accepts the synthetic taxonomy renderer example', () => {
+    expect(validateDocument(taxonomyComparison)).toMatchObject({ ok: true });
+  });
+
   it('accepts a root $schema identifier', () => {
     const document = cloneValidDocument() as unknown as Record<string, unknown>;
     document.$schema = 'https://example.com/org-chart.schema.json';
 
     expect(validateDocument(document).ok).toBe(true);
+  });
+
+  it('accepts supported presentation layout modes and rejects unknown modes', () => {
+    const taxonomy = cloneValidDocument() as unknown as Record<string, unknown>;
+    taxonomy.presentation = { layoutMode: 'taxonomy' };
+    const invalid = cloneValidDocument() as unknown as Record<string, unknown>;
+    invalid.presentation = { layoutMode: 'radial' };
+
+    expect(validateDocument(taxonomy).ok).toBe(true);
+    expect(validateDocument(invalid)).toMatchObject({
+      ok: false,
+      errors: [expect.stringMatching(/presentation.*layoutMode/i)],
+    });
   });
 
   it('accepts comparison tiers, taxonomy systems, and node assignments', () => {
