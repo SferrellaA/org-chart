@@ -46,7 +46,7 @@ function host(): HTMLElement {
   return element;
 }
 
-describe('D3OrgChartRenderer with installed d3-org-chart', () => {
+describe('D3OrgChartRenderer with the shared scene renderer', () => {
   beforeEach(() => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
       measureText: () => ({ width: 10 }),
@@ -74,7 +74,7 @@ describe('D3OrgChartRenderer with installed d3-org-chart', () => {
     document.body.replaceChildren();
   });
 
-  it('renders multiple roots through an invisible minimal collision-safe synthetic root', async () => {
+  it('renders multiple roots without exposing a synthetic root', async () => {
     const element = host();
     const renderer = new D3OrgChartRenderer(element, { onActivate: vi.fn() });
 
@@ -88,16 +88,7 @@ describe('D3OrgChartRenderer with installed d3-org-chart', () => {
     expect(element.querySelector('[data-node-id="first"]')).not.toBeNull();
     expect(element.querySelector('[data-node-id="second"]')).not.toBeNull();
     expect(element.querySelectorAll('[data-node-id]')).toHaveLength(3);
-    expect(element.querySelector('svg.svg-chart-container')?.getAttribute('width')).toBe('800');
-    expect(element.querySelector('svg.svg-chart-container')?.getAttribute('height')).toBe('600');
-    const hiddenNodes = [...element.querySelectorAll<SVGGElement>('g.node')]
-      .filter((item) => item.style.display === 'none');
-    expect(hiddenNodes).toHaveLength(1);
-    expect(hiddenNodes[0]?.querySelector('foreignObject')?.getAttribute('width')).toBe('1');
-    expect(
-      [...element.querySelectorAll<SVGPathElement>('path.link')]
-        .filter((item) => item.style.display === 'none'),
-    ).toHaveLength(3);
+    expect(element.querySelectorAll('[data-scene-node]')).toHaveLength(3);
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     const minimap = element.querySelector<SVGSVGElement>('.org-delta-minimap')!;
     expect([...minimap.querySelectorAll<SVGElement>('[data-minimap-node-id]')]
@@ -116,7 +107,7 @@ describe('D3OrgChartRenderer with installed d3-org-chart', () => {
     element.append(unrelated);
     const renderer = new D3OrgChartRenderer(element, { onActivate: vi.fn() });
     renderer.render(view([node('root')]));
-    expect(element.querySelector('svg.svg-chart-container')).not.toBeNull();
+    expect(element.querySelector('.org-delta-scene-renderer')).not.toBeNull();
 
     renderer.destroy();
     window.dispatchEvent(new Event('resize'));
@@ -167,14 +158,10 @@ describe('D3OrgChartRenderer with installed d3-org-chart', () => {
       node('child', 'root'),
       node('grandchild', 'child'),
     ]));
-    const child = element.querySelector('[data-node-id="child"]')?.closest('g.node');
-    const control = child?.querySelector<SVGGElement>('.node-button-g');
-    expect(control?.getAttribute('role')).toBe('button');
-    expect(control?.getAttribute('tabindex')).toBe('0');
+    const control = element.querySelector<HTMLButtonElement>('[data-hierarchy-toggle="child"]');
+    expect(control?.tagName).toBe('BUTTON');
     expect(control?.getAttribute('aria-label')).toContain('child');
-    control?.dispatchEvent(
-      new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }),
-    );
+    control?.click();
 
     renderer.render(view([
       { ...node('root'), name: 'Updated root' },
@@ -198,17 +185,12 @@ describe('D3OrgChartRenderer with installed d3-org-chart', () => {
     ];
     renderer.render({ ...view(nested), initialExpansionIds: ['root'] });
 
-    element.querySelector('[data-node-id="A"]')?.closest('g.node')
-      ?.querySelector<SVGGElement>('.node-button-g')
-      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    const bControl = element.querySelector('[data-node-id="B"]')?.closest('g.node')
-      ?.querySelector<SVGGElement>('.node-button-g');
+    element.querySelector<HTMLButtonElement>('[data-hierarchy-toggle="A"]')?.click();
+    const bControl = element.querySelector<HTMLButtonElement>('[data-hierarchy-toggle="B"]');
     expect(bControl).not.toBeNull();
-    bControl?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    bControl?.click();
     expect(element.querySelector('[data-node-id="C"]')).not.toBeNull();
-    element.querySelector('[data-node-id="B"]')?.closest('g.node')
-      ?.querySelector<SVGGElement>('.node-button-g')
-      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    element.querySelector<HTMLButtonElement>('[data-hierarchy-toggle="B"]')?.click();
 
     renderer.render({
       ...view(nested.map((item) => ({ ...item, name: `${item.name} updated` }))),

@@ -36,12 +36,20 @@ export const componentStyles = `
   .org-delta-tooltip[hidden] { display: none; }
   .org-delta-tooltip p { margin: 5px 0 0; }
   .org-delta-tooltip__sources { color: #dbeafe; font-size: .9em; }
-  .org-delta-renderer-root, .org-delta-overlay { position: relative; width: 100%; height: 100%; }
+  .org-delta-renderer-root, .org-delta-overlay, .org-delta-scene-renderer { position: relative; width: 100%; height: 100%; overflow: hidden; touch-action: none; }
+  .org-delta-scene-world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+  .org-delta-scene-decorations, .org-delta-scene-connectors, .org-delta-scene-nodes { position: absolute; inset: 0; }
+  .org-delta-scene-decorations { z-index: 0; pointer-events: none; }
+  .org-delta-scene-connectors { z-index: 1; overflow: visible; pointer-events: none; }
+  .org-delta-scene-nodes { z-index: 2; }
+  .org-delta-scene-node { position: absolute; }
+  .org-delta-scene-node--revealed { outline: 4px solid #155eef; outline-offset: 4px; }
+  .org-delta-hierarchy-toggle { position: absolute; z-index: 3; right: 4px; bottom: -36px; min-width: 32px; min-height: 32px; padding: 0; border: 0; background: transparent; }
   .org-delta-visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   .org-delta-tree-navigation { position: absolute; z-index: 10; top: 8px; left: 8px; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .org-delta-tree-navigation:focus-within { width: min(360px, calc(100% - 16px)); height: auto; max-height: calc(100% - 16px); padding: 8px; overflow: auto; clip: auto; white-space: normal; border: 2px solid currentColor; background: Canvas; }
   .org-delta-tree-navigation [role='treeitem'] { display: block; min-height: 44px; padding: 10px 12px; border: 1px solid currentColor; background: Canvas; color: CanvasText; }
-  .org-delta-minimap { color: #334155; border: 1px solid currentColor; background: rgba(255,255,255,.9); }
+  .org-delta-minimap { position: absolute; z-index: 5; right: 0; bottom: 0; width: 160px; height: 100px; color: #334155; border: 1px solid currentColor; background: rgba(255,255,255,.9); pointer-events: none; }
   .org-delta-node-shell { display: grid; width: 100%; gap: 4px; }
   .org-delta-unit-card { display: grid; width: 100%; min-height: 72px; padding: 7px 9px; color: inherit; font: inherit; text-align: left; cursor: pointer; }
   .org-delta-node { border: 2px solid #64748b; border-radius: 8px; background: #fff; }
@@ -93,6 +101,12 @@ export const componentStyles = `
   .org-delta-taxonomy-connectors [data-taxonomy-relationship] { stroke: #7c3aed; stroke-dasharray: 6 4; }
   .org-delta-taxonomy-connectors [data-taxonomy-movement] { stroke: #9a6700; stroke-width: 3; stroke-dasharray: 8 5; }
   .org-delta-taxonomy-movement { display: block; width: 100%; border-top: 2px dashed #9a6700; }
+  .org-delta-scene-world.org-delta-taxonomy-world { display: block; min-width: 0; width: auto; }
+  .org-delta-scene-world .org-delta-taxonomy-header { display: flex; align-items: center; justify-content: flex-end; gap: 18px; padding: 8px 18px; }
+  .org-delta-scene-world .org-delta-taxonomy-side-heading { margin-right: auto; margin-left: 138px; }
+  .org-delta-taxonomy-tier-decoration > .org-delta-taxonomy-tier { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: start; width: 100%; height: 100%; min-width: 0; padding: 24px 18px; }
+  .org-delta-taxonomy-tier-decoration .org-delta-taxonomy-systems { grid-column: 2; justify-self: end; }
+  .org-delta-taxonomy-renderer .org-delta-hierarchy-toggle { bottom: 4px; }
   @media (max-width: 640px) {
     :host { min-height: 520px; }
     .chart-shell { grid-template-rows: auto minmax(0, 1fr); }

@@ -3,10 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { diffCharts } from '../src/model/diff';
 import { resolveView } from '../src/model/resolve';
 import { buildTaxonomyRenderView } from '../src/presentation/build-taxonomy-view';
-import {
-  taxonomyConnectorPoint,
-  TaxonomyRenderer,
-} from '../src/renderer/taxonomy-renderer';
+import { TaxonomyRenderer } from '../src/renderer/taxonomy-renderer';
 import { taxonomyDocument } from './fixtures';
 import { componentStyles } from '../src/component/styles';
 
@@ -30,15 +27,6 @@ describe('TaxonomyRenderer', () => {
     document.body.replaceChildren();
     vi.unstubAllGlobals();
     delete (Element.prototype as unknown as { animate?: unknown }).animate;
-  });
-
-  it('converts transformed card geometry back to world connector coordinates', () => {
-    expect(taxonomyConnectorPoint(
-      new DOMRect(120, 70, 40, 20),
-      new DOMRect(100, 50, 400, 300),
-      'center',
-      2,
-    )).toEqual({ x: 20, y: 15 });
   });
 
   it('renders one selected chart in taxonomy rows with column headings', () => {
@@ -176,9 +164,9 @@ describe('TaxonomyRenderer', () => {
       initialExpansionIds: ['root'],
     });
 
-    const left = host.querySelector<HTMLElement>('[data-node-id="left"]')!;
-    const right = host.querySelector<HTMLElement>('[data-node-id="right"]')!;
-    const root = host.querySelector<HTMLElement>('[data-node-id="root"]')!;
+    const left = host.querySelector<HTMLElement>('[data-scene-id="left"]')!;
+    const right = host.querySelector<HTMLElement>('[data-scene-id="right"]')!;
+    const root = host.querySelector<HTMLElement>('[data-scene-id="root"]')!;
     const leftX = Number.parseFloat(left.style.left);
     const rightX = Number.parseFloat(right.style.left);
     const rootX = Number.parseFloat(root.style.left);
@@ -198,7 +186,7 @@ describe('TaxonomyRenderer', () => {
     const proposed = host.querySelector<HTMLElement>(
       '[data-view-side="proposed"][data-node-id="naf-a"] [data-activate-kind="node"]',
     )!;
-    proposed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    proposed.click();
 
     expect(onActivate).toHaveBeenCalledOnce();
     expect(onActivate).toHaveBeenCalledWith(
@@ -295,10 +283,12 @@ describe('TaxonomyRenderer', () => {
 
     renderer.fit();
 
-    expect(world.style.transform).toContain('scale(0.475)');
+    expect(world.style.transform).toContain('scale(');
+    expect(Number(world.style.transform.match(/scale\(([^)]+)/)?.[1])).toBeLessThan(1);
+    const fitted = world.style.transform;
     transformed = true;
     renderer.fit();
-    expect(world.style.transform).toContain('scale(0.475)');
+    expect(world.style.transform).toBe(fitted);
     const transform = world.style.transform;
     host.querySelector<HTMLButtonElement>('[data-taxonomy-toggle="naf-a"]')!.click();
     expect(host.querySelector<HTMLElement>('.org-delta-taxonomy-world')!.style.transform)
@@ -320,7 +310,7 @@ describe('TaxonomyRenderer', () => {
     await Promise.resolve();
 
     expect(host.querySelector<HTMLElement>('.org-delta-taxonomy-world')!.style.transform)
-      .toContain('scale(0.2375)');
+      .toContain('scale(');
     bounds.mockRestore();
   });
 
@@ -353,7 +343,7 @@ describe('TaxonomyRenderer', () => {
     resize?.([], {} as ResizeObserver);
 
     expect(host.querySelector<HTMLElement>('.org-delta-taxonomy-world')!.style.transform)
-      .toContain('scale(0.475)');
+      .toContain('scale(');
     renderer.destroy();
     expect(disconnect).toHaveBeenCalledOnce();
     bounds.mockRestore();

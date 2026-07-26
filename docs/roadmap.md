@@ -25,19 +25,22 @@ This roadmap records the agreed sequence for post-MVP work. Future sessions shou
 4. **Historical Renderer Review & Polish** - completed 2026-07-25
    Exercise both renderers with an accepted working reconstruction of the 1992 SAC/TAC transition to ACC/AMC. Add provenance tooltips, shared organization cards, hierarchy-positioned selected-state taxonomy rendering, configurable motion, persistent desktop controls, a mobile controls drawer, and historical integration and browser acceptance coverage.
 
-5. **Focus Sets**
+5. **Renderer Consolidation** - completed 2026-07-25
+   Replace the separate renderer behavior implementations with one shared hierarchy projection, expansion controller, unit-card primitive, keyed transition engine, semantic navigation tree, connector renderer, pan/zoom/fit behavior, and minimap. Keep depth and taxonomy as layout adapters over the shared scene renderer, preserve their public wrapper APIs, and remove the `d3-org-chart` dependency.
+
+6. **Focus Sets**
    Turn the existing dormant zone-like concept into authored named focus sets with versioned membership. Allow one active set at a time. Members receive the set accent while nonmembers are de-emphasized but retained as context. Support the feature in both depth and taxonomy renderers, including removed nodes, and author wing-mission sets such as fighter, bomber, tanker, reconnaissance, air control, missile, and composite over the historical cohort.
 
-6. **YAML Authoring**
+7. **YAML Authoring**
    Add a human- and AI-friendly YAML shorthand compiled into canonical JSON. Require explicit stable IDs. Support the full feature set, including snapshots, proposals, leadership, taxonomies, focus sets, relationships, and patch groups. Provide deterministic output, source-location diagnostics, validation commands, examples, and AI authoring guidance.
 
-7. **Full Air Force Example**
+8. **Full Air Force Example**
    Build a realistic YAML-authored acceptance fixture after the leadership, taxonomy, focus-set, and authoring features exist. Use it to demonstrate operational and staff structures, historical Air Divisions, skipped tiers, internal/subordinate distinctions, rank markers, taxonomy changes, and named focus sets.
 
-8. **Integration Hardening**
+9. **Integration Hardening**
    Polish accessibility, mobile behavior, performance, schema documentation, package exports, visual examples, and end-to-end tests using the realistic fixture and stress cases.
 
-9. **Cross-Taxonomy Ambiguity**
+10. **Cross-Taxonomy Ambiguity**
    Visualize organizations whose assignments in different taxonomy systems map to different comparison tiers without duplicating the organization or privileging one taxonomy.
 
 ## Key Design Decisions
@@ -46,5 +49,6 @@ This roadmap records the agreed sequence for post-MVP work. Future sessions shou
 - Do not fork the project unless the taxonomy renderer proves impossible to keep isolated.
 - Keep leadership and taxonomy data versioned so snapshots and proposals can change them.
 - Keep layout mode as presentation configuration, not organization identity.
+- Keep renderer behavior shared; layout adapters should supply positions and mode-specific decoration only.
 - Do not require every chart to use leadership, taxonomies, focus sets, or YAML authoring.
 - Treat AI authoring as an accelerator, not as the only supported authoring path.

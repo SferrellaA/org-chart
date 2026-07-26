@@ -116,7 +116,7 @@ export function renderLeadership(
   }).join('');
 }
 
-interface UnitCardData {
+export interface UnitCardData {
   id: string;
   name: string;
   kind: ActivationKind;
@@ -129,7 +129,7 @@ interface UnitCardData {
   content?: string;
 }
 
-function renderUnitCard(data: UnitCardData): string {
+export function renderUnitCard(data: UnitCardData): string {
   const classes = [
     'org-delta-node',
     'org-delta-unit-card',

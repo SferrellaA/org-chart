@@ -11,6 +11,14 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('published package', () => {
+  it('does not ship the replaced d3-org-chart dependency', () => {
+    const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      dependencies?: Record<string, string>;
+    };
+
+    expect(packageJson.dependencies).not.toHaveProperty('d3-org-chart');
+  });
+
   it('provides declarations to TypeScript consumers', () => {
     const packageRoot = process.cwd();
     const temporaryDirectory = mkdtempSync(join(tmpdir(), 'org-delta-chart-'));

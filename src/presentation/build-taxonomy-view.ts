@@ -6,6 +6,7 @@ import type {
   TaxonomySystem,
 } from '../model/types';
 import type { RenderRelationship, SearchEntry } from '../renderer/types';
+import { projectHierarchy } from './hierarchy-projection';
 
 export interface BuildTaxonomyRenderViewOptions {
   comparison: boolean;
@@ -55,185 +56,80 @@ export interface TaxonomyMovement {
   toTierId: string;
 }
 
-function hierarchyOrder(chart: ResolvedChart): string[] {
-  const children = new Map<string, string[]>();
-  for (const [child, edge] of chart.parents) {
-    const values = children.get(edge.parent) ?? [];
-    values.push(child);
-    children.set(edge.parent, values);
-  }
-  const roots = [...chart.nodes.keys()].filter((id) => {
-    const parent = chart.parents.get(id)?.parent;
-    return parent === undefined || !chart.nodes.has(parent);
-  });
-  const order: string[] = [];
-  const seen = new Set<string>();
-  const stack = roots.slice().reverse();
-  while (stack.length > 0) {
-    const id = stack.pop()!;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    order.push(id);
-    const descendants = children.get(id) ?? [];
-    for (let index = descendants.length - 1; index >= 0; index -= 1) {
-      stack.push(descendants[index]!);
-    }
-  }
-  for (const id of chart.nodes.keys()) if (!seen.has(id)) order.push(id);
-  return order;
-}
-
-function cloneLeadership(
-  leadership: readonly LeadershipPosition[] | undefined,
-): LeadershipPosition[] | undefined {
-  return leadership?.map((position) => ({
-    ...position,
-    ...(position.authorizedRank
-      ? {
-          authorizedRank: {
-            ...position.authorizedRank,
-            ...(position.authorizedRank.marker
-              ? { marker: { ...position.authorizedRank.marker } }
-              : {}),
-          },
-        }
-      : {}),
-    ...(position.occupant
-      ? {
-          occupant: {
-            ...position.occupant,
-            ...(position.occupant.rank
-              ? {
-                  rank: {
-                    ...position.occupant.rank,
-                    ...(position.occupant.rank.marker
-                      ? { marker: { ...position.occupant.rank.marker } }
-                      : {}),
-                  },
-                }
-              : {}),
-          },
-        }
-      : {}),
-  }));
-}
-
 function projectSide(
   chart: ResolvedChart,
   diff: ChartDiff,
   options: BuildTaxonomyRenderViewOptions,
   sharedTierOrder: readonly string[],
-  displayDiff = true,
-): TaxonomyRenderSide {
+): { side: TaxonomyRenderSide; initialExpansionIds: readonly string[] } {
+  const projection = projectHierarchy(chart, diff, {
+    ...options,
+    displayDiff: false,
+    includeRemovedRelationships: false,
+  });
   const authoredTierOrder = chart.taxonomy.comparisonTiers.map(({ id }) => id);
   const tierOrder = authoredTierOrder.length > 0 ? authoredTierOrder : sharedTierOrder;
   const tierIndex = new Map(tierOrder.map((id, index) => [id, index]));
   const placements = new Map<string, string>();
-  const allNodes: TaxonomyRenderNode[] = [];
-  for (const id of hierarchyOrder(chart)) {
-    const node = chart.nodes.get(id)!;
-    const edge = chart.parents.get(id);
+  const allNodes = new Map<string, TaxonomyRenderNode>();
+
+  for (const entry of projection.entries) {
+    const node = chart.nodes.get(entry.id)!;
     const authoredTiers = [...new Set(
       (node.resolvedTaxonomyAssignments ?? []).map(({ tierId }) => tierId),
     )];
     let tierId = authoredTiers.length === 1 ? authoredTiers[0] : undefined;
     if (tierId === undefined || !tierIndex.has(tierId)) {
-      const parentTier = edge ? placements.get(edge.parent) : undefined;
+      const parentTier = entry.parentId ? placements.get(entry.parentId) : undefined;
       const parentIndex = parentTier === undefined ? 0 : (tierIndex.get(parentTier) ?? 0);
-      const fallbackIndex = edge?.relationship === 'subordinate' ? parentIndex + 1 : parentIndex;
+      const fallbackIndex = entry.relationship === 'subordinate' ? parentIndex + 1 : parentIndex;
       tierId = tierOrder[Math.min(Math.max(fallbackIndex, 0), Math.max(tierOrder.length - 1, 0))]
         ?? '';
     }
-    placements.set(id, tierId);
-    allNodes.push({
-      id,
-      name: node.name,
-      ...(edge ? { parentId: edge.parent } : {}),
-      ...(edge ? { parentName: chart.nodes.get(edge.parent)?.name ?? edge.parent } : {}),
+    placements.set(entry.id, tierId);
+    allNodes.set(entry.id, {
+      id: entry.id,
+      name: entry.name,
+      ...(entry.parentId ? { parentId: entry.parentId } : {}),
+      ...(entry.parentId
+        ? { parentName: chart.nodes.get(entry.parentId)?.name ?? entry.parentId }
+        : {}),
       tierId,
-      internal: edge?.relationship === 'internal',
-      ...(node.leadership ? { leadership: cloneLeadership(node.leadership)! } : {}),
-      diffKind: displayDiff ? (diff.nodes.get(id)?.kind ?? 'unchanged') : 'unchanged',
+      internal: entry.internal,
+      ...(entry.leadership ? { leadership: entry.leadership.map((item) => ({ ...item })) } : {}),
+      diffKind: 'unchanged',
     });
   }
-  const visibleInternal = new Set<string>();
-  if (options.showInternal) {
-    for (const node of allNodes) if (node.internal) visibleInternal.add(node.id);
-  } else {
-    for (const requested of options.revealedInternalIds) {
-      if (chart.parents.get(requested)?.relationship === 'internal') visibleInternal.add(requested);
-    }
-    for (const id of hierarchyOrder(chart).reverse()) {
-      if (!visibleInternal.has(id)) continue;
-      const parent = chart.parents.get(id)?.parent;
-      if (parent && chart.parents.get(parent)?.relationship === 'internal') {
-        visibleInternal.add(parent);
-      }
-    }
-  }
-  const visibleIds = new Set(allNodes
-    .filter((node) => !node.internal || visibleInternal.has(node.id))
-    .map(({ id }) => id));
-  const visibleAnchor = (id: string): string => {
-    const seen = new Set<string>();
-    let current = id;
-    while (!visibleIds.has(current) && !seen.has(current)) {
-      seen.add(current);
-      const parent = chart.parents.get(current)?.parent;
-      if (parent === undefined) break;
-      current = parent;
-    }
-    return current;
-  };
-  const nodes = allNodes
-    .filter(({ id }) => visibleIds.has(id))
-    .map((node) => {
-      const parent = node.parentId;
-      const connectorSourceId = parent === undefined ? undefined : visibleAnchor(parent);
-      return {
-        ...node,
-        ...(connectorSourceId !== undefined && connectorSourceId !== parent
-          ? { connectorSourceId }
-          : {}),
-      };
-    });
-  const relationships: RenderRelationship[] = [];
-  if (options.showRelationships) {
-    for (const relationship of chart.relationships.values()) {
-      const source = visibleAnchor(relationship.source);
-      const target = visibleAnchor(relationship.target);
-      const aggregated = source !== relationship.source || target !== relationship.target;
-      if (aggregated && source === target && relationship.source !== relationship.target) continue;
-      relationships.push({
-        id: relationship.id,
-        source,
-        target,
-        sourceAncestors: [source],
-        targetAncestors: [target],
-        label: relationship.label,
-        type: relationship.type,
-        aggregated,
-        diffKind: displayDiff
-          ? (diff.relationships.get(relationship.id)?.kind ?? 'unchanged')
-          : 'unchanged',
-      });
-    }
-  }
-  const searchEntries = [...chart.nodes].map(([id, node]) => ({
-    id,
-    label: node.name,
-    aliases: node.aliases ? [...node.aliases] : [],
-    hiddenInternal: !visibleIds.has(id),
-    ownerId: visibleAnchor(id),
+
+  const nodes = projection.visibleEntries.map((entry) => {
+    const node = allNodes.get(entry.id)!;
+    const connectorSourceId = entry.parentId
+      ? projection.visibleAnchors.get(entry.parentId)
+      : undefined;
+    return {
+      ...node,
+      ...(connectorSourceId !== undefined && connectorSourceId !== entry.parentId
+        ? { connectorSourceId }
+        : {}),
+    };
+  });
+  const visibleIds = new Set(nodes.map(({ id }) => id));
+  const searchEntries = projection.searchEntries.map((entry) => ({
+    ...entry,
+    ownerId: projection.visibleAnchors.get(entry.id) ?? entry.ownerId,
   }));
+
   return {
-    systems: chart.taxonomy.systems.map((system) => ({
-      ...system,
-      levels: system.levels.map((level) => ({ ...level })),
-    })),
-    nodes,
-    relationships,
-    searchEntries,
+    side: {
+      systems: chart.taxonomy.systems.map((system) => ({
+        ...system,
+        levels: system.levels.map((level) => ({ ...level })),
+      })),
+      nodes,
+      relationships: projection.relationships,
+      searchEntries,
+    },
+    initialExpansionIds: projection.initialExpansionIds.filter((id) => visibleIds.has(id)),
   };
 }
 
@@ -249,37 +145,12 @@ export function buildTaxonomyRenderView(
     kind: 'unchanged' as const,
     proposed: proposed.taxonomy.comparisonTiers.find((tier) => tier.id === id)!,
   }));
-  const proposedSide = projectSide(proposed, diff, options, order, false);
-  const initial = new Set<string>();
-  const initialDepth = proposed.presentation.initialExpansionDepth ?? 2;
-  const addInitialDepth = (chart: ResolvedChart, side: TaxonomyRenderSide): void => {
-    const depth = new Map<string, number>();
-    for (const id of hierarchyOrder(chart)) {
-      const edge = chart.parents.get(id);
-      const parentDepth = edge ? (depth.get(edge.parent) ?? 0) : 0;
-      depth.set(id, edge?.relationship === 'subordinate' ? parentDepth + 1 : parentDepth);
-    }
-    for (const node of side.nodes) {
-      if ((depth.get(node.id) ?? 0) <= initialDepth) initial.add(node.id);
-    }
-  };
-  addInitialDepth(proposed, proposedSide);
-  const proposedNodes = new Map(proposedSide.nodes.map((node) => [node.id, node]));
-  for (const focusId of proposed.presentation.focusNodes ?? []) {
-    let current = proposedSide.searchEntries.find(({ id }) => id === focusId)?.ownerId;
-    const seen = new Set<string>();
-    while (current && !seen.has(current)) {
-      seen.add(current);
-      initial.add(current);
-      const node = proposedNodes.get(current);
-      current = node?.connectorSourceId ?? node?.parentId;
-    }
-  }
+  const { side, initialExpansionIds } = projectSide(proposed, diff, options, order);
   return {
     tiers,
-    proposed: proposedSide,
+    proposed: side,
     movements: [],
-    searchEntries: proposedSide.searchEntries,
-    initialExpansionIds: [...initial],
+    searchEntries: side.searchEntries,
+    initialExpansionIds,
   };
 }

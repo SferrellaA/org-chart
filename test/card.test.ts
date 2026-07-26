@@ -1,9 +1,26 @@
 import { describe, expect, it } from 'vitest';
 
-import { renderDepthNodeContent, renderExpansionIcon, renderTaxonomyCard } from '../src/renderer/card';
+import {
+  renderDepthNodeContent,
+  renderExpansionIcon,
+  renderTaxonomyCard,
+  renderUnitCard,
+} from '../src/renderer/card';
 import { componentStyles } from '../src/component/styles';
 
 describe('renderTaxonomyCard', () => {
+  it('uses one card primitive for depth and taxonomy activation contexts', () => {
+    const depth = renderUnitCard({
+      id: 'wing', name: 'Wing', kind: 'node', diffKind: 'modified',
+    });
+    const taxonomy = renderUnitCard({
+      id: 'wing', name: 'Wing', kind: 'node', diffKind: 'modified', side: 'proposed',
+    });
+
+    expect(depth).toContain('org-delta-unit-card');
+    expect(taxonomy.replace(' data-view-side="proposed"', '')).toBe(depth);
+  });
+
   it('renders a side-aware subdued internal card with leadership and safe activation', () => {
     const markup = renderTaxonomyCard({
       id: 'office&lt;',

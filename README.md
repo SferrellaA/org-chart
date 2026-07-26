@@ -160,7 +160,7 @@ An embed author can override the document without changing its organization data
 
 `layoutMode` and `layout-mode` accept `depth` or `taxonomy`; the component attribute takes precedence and the default is `depth`. If taxonomy mode is requested for a view with no comparison tiers, the component announces the condition and falls back to depth layout.
 
-Taxonomy deltas align two complete charts to shared tier rows. The baseline and proposed halves each show all organizations and every taxonomy system supplied by that resolved view, including duplicated unchanged organizations and version-specific leadership. Added and removed organizations appear only on their applicable side. Organizations that move tiers receive cross-chart connectors. A standalone snapshot renders as one full-width taxonomy chart.
+Taxonomy layout places the complete selected state in shared tier rows and shows every taxonomy system supplied by that resolved view. Comparison details remain available from organization cards without duplicating the baseline chart. A standalone snapshot and a selected proposal therefore use the same full-width hierarchy-positioned taxonomy chart.
 
 ## Snapshots And Proposals
 
@@ -270,6 +270,8 @@ The fixture combines documented relationships from the final reorganization peri
 The component provides native controls for selecting views, toggling proposal patch groups, showing or hiding internal units, showing or hiding relationships, fitting the chart, and searching organizations. Hidden internal units remain indexed; selecting an exact search result reveals the internal chain needed to show the match.
 
 The rendered chart includes a keyboard-navigable tree separate from the visual diagram. Status updates use an ARIA live region, details open in a focus-managed panel, and controls preserve focus where possible across re-renders.
+
+Depth and taxonomy modes use the same hierarchy controller and scene renderer. They share unit-card markup, recursive expansion, search reveal, keyboard behavior, keyed proposal transitions, reduced-motion and large-chart rules, pan and zoom, fit, connectors, and minimap. The exported `D3OrgChartRenderer` name remains for compatibility, but the package no longer depends on `d3-org-chart`.
 
 ## Deferred Fields
 
